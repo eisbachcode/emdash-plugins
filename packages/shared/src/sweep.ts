@@ -1,7 +1,7 @@
 /**
  * Cursor-driven collection walk.
  *
- * Both plugins sweep every configured collection page by page across cron
+ * Both plugins sweep every collection page by page across cron
  * ticks rather than in one pass, for the same reason: a sandboxed plugin
  * gets 10 subrequests per invocation on Cloudflare and the limit counts
  * service-binding calls, so `ctx.content`, `ctx.storage` and `ctx.kv`
@@ -32,6 +32,16 @@ export interface CollectionPage {
 	items: PluginContentItem[];
 	/** True when this was the last page of that collection. */
 	lastPage: boolean;
+}
+
+/** A collection as `schema:read` describes it. Derived for the same reason as `PluginContentItem`. */
+export type PluginCollectionInfo = Awaited<
+	ReturnType<NonNullable<PluginContext["schema"]>["listCollections"]>
+>[number];
+
+/** Every collection on the site, or none when `schema:read` was not granted. */
+export async function listCollections(ctx: PluginContext): Promise<PluginCollectionInfo[]> {
+	return ctx.schema ? ctx.schema.listCollections() : [];
 }
 
 /** Marker written to the cursor key once a collection is fully walked. */
