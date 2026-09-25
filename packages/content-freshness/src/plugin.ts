@@ -24,7 +24,7 @@ import {
 } from "./report.js";
 import { renderPanel, ruleOf, SET_ASIDE_ACTION, UNDO_ACTION } from "./panel.js";
 import { ensureScheduled } from "./schedule.js";
-import { applyForm, readStoredSettings, writeStoredSettings } from "./settings.js";
+import { applyForm, readSettings, readStoredSettings, writeStoredSettings } from "./settings.js";
 import { readState } from "./state.js";
 import { AUDIT_NOW_TASK, runAudit } from "./sweep.js";
 
@@ -133,7 +133,7 @@ const plugin = {
 					const { settings, state } = await loadAdmin(ctx);
 					if (interaction.page === "widget:summary") return buildWidget(ctx, state, lang, routeCtx.user?.id);
 					if (interaction.page === "/settings") return buildSettingsPage(settings, lang, await listCollections(ctx));
-					return buildReportPage(ctx, state, lang);
+					return buildReportPage(ctx, state, settings, lang);
 				}
 
 				if (interaction.type === "form_submit" && interaction.action_id === SAVE_SETTINGS_ACTION) {
@@ -142,13 +142,14 @@ const plugin = {
 
 				if (interaction.type === "block_action") {
 					if (interaction.action_id === VIEW_ACTION) {
-						return buildReportPage(ctx, await readState(ctx), lang, viewFrom(interaction.value));
+						const [state, settings] = await Promise.all([readState(ctx), readSettings(ctx)]);
+						return buildReportPage(ctx, state, settings, lang, viewFrom(interaction.value));
 					}
 					if (interaction.action_id === AUDIT_NOW_ACTION) {
 						await ctx.cron?.schedule(AUDIT_NOW_TASK, { schedule: new Date(Date.now() + 1000).toISOString() });
-						const state = await readState(ctx);
+						const [state, settings] = await Promise.all([readState(ctx), readSettings(ctx)]);
 						return {
-							...(await buildReportPage(ctx, state, lang, viewFrom(interaction.value))),
+							...(await buildReportPage(ctx, state, settings, lang, viewFrom(interaction.value))),
 							toast: { message: t(lang, state.sweep ? "auditContinues" : "auditStarts"), type: "info" },
 						};
 					}

@@ -2,7 +2,8 @@ import { validateBlocks } from "@emdash-cms/blocks/server";
 import { createPluginRuntimeTestHost, type PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PANEL_ID } from "../src/panel.js";
+import { PANEL_ID, SET_ASIDE_ACTION } from "../src/panel.js";
+import { SAVE_SETTINGS_ACTION } from "../src/report.js";
 import { finding, runSweep } from "./host.js";
 
 let host: PluginRuntimeTestHost | undefined;
@@ -22,42 +23,67 @@ async function offers() {
 		urlPattern: "/offers/{slug}",
 		fields: [{ slug: "valid_until", label: "Valid until", type: "datetime" }],
 	});
+	// How EmDash stores 31 January for a site in Berlin.
 	const entry = await runtime.fixtures.content("offers", {
 		slug: "summer-sale",
-		data: { valid_until: "2026-01-31" },
+		data: { valid_until: "2026-01-30T23:00:00.000Z" },
 		status: "published",
 	});
 	return { runtime, entry };
 }
 
-describe("an entry whose expiry date has passed", () => {
-	it("is found by the sweep through the detected field", async () => {
+const chooseField = (runtime: PluginRuntimeTestHost, value: string) =>
+	runtime.admin.submit("/settings", SAVE_SETTINGS_ACTION, { "collection:offers:expiryField": value });
+
+describe("expiry", () => {
+	it("is suggested in the report, and checks nothing until the field is chosen", async () => {
 		const { runtime, entry } = await offers();
 		host = runtime;
 		await runSweep(runtime);
 
-		const row = await finding(runtime, "offers", entry.id);
-		expect(row?.hits).toContainEqual(expect.objectContaining({ rule: "expired", params: expect.objectContaining({ field: "Valid until" }) }));
-	});
-
-	it("shows in its panel, where it can be ignored", async () => {
-		const { runtime, entry } = await offers();
-		host = runtime;
-		const panel = await runtime.admin.loadEditorPanel(PANEL_ID, "offers", entry.id);
-		expect(validateBlocks(panel.blocks).valid).toBe(true);
-		expect(JSON.stringify(panel.blocks)).toContain("Valid until was 2026-01-31");
-		expect(JSON.stringify(panel.blocks)).toContain("Ignore");
-	});
-
-	it("lets the settings name the field, or switch expiry off", async () => {
-		const { runtime, entry } = await offers();
-		host = runtime;
-		const page = await runtime.admin.loadPage("/settings");
-		expect(validateBlocks(page.blocks).valid).toBe(true);
-		expect(JSON.stringify(page.blocks)).toContain("Detected: Valid until");
-
-		await runtime.admin.submit("/settings", "save_settings", { "collection:offers:expiryField": "off" });
-		await runtime.admin.loadEditorPanel(PANEL_ID, "offers", entry.id);
 		expect(await finding(runtime, "offers", entry.id)).toBeNull();
+		const report = await runtime.admin.loadPage("/report");
+		expect(validateBlocks(report.blocks).valid).toBe(true);
+		expect(JSON.stringify(report.blocks)).toContain("Expiry dates not checked: Offers (Valid until)");
+		const settings = await runtime.admin.loadPage("/settings");
+		expect(validateBlocks(settings.blocks).valid).toBe(true);
+		expect(JSON.stringify(settings.blocks)).toContain("Valid until (suggested)");
+	});
+
+	it("reports an expired entry once the field is chosen, naming the instant in UTC", async () => {
+		const { runtime, entry } = await offers();
+		host = runtime;
+		await chooseField(runtime, "valid_until");
+		await runSweep(runtime);
+
+		const row = await finding(runtime, "offers", entry.id);
+		expect(row?.hits).toContainEqual(
+			expect.objectContaining({ rule: "expired", params: { field: "Valid until", date: "2026-01-30 23:00 UTC" } }),
+		);
+		expect(JSON.stringify((await runtime.admin.loadPage("/report")).blocks)).not.toContain("Expiry dates not checked");
+	});
+
+	it("comes back after an ignore once the date moved and passed again", async () => {
+		const { runtime, entry } = await offers();
+		host = runtime;
+		await chooseField(runtime, "valid_until");
+		await runtime.admin.actEditorPanel(PANEL_ID, "offers", entry.id, SET_ASIDE_ACTION, { value: { rule: "expired" } });
+		expect(await finding(runtime, "offers", entry.id)).toBeNull();
+
+		// Next season's offer, which has run out as well. The collection keeps
+		// revisions, so the new date is live once it is published.
+		await runtime.actions.content.update("offers", entry.id, { data: { valid_until: "2026-08-31T22:00:00.000Z" } });
+		await runtime.actions.content.publish("offers", entry.id);
+		const panel = await runtime.admin.loadEditorPanel(PANEL_ID, "offers", entry.id);
+
+		expect(JSON.stringify(panel.blocks)).toContain("2026-08-31 22:00 UTC");
+		expect(await finding(runtime, "offers", entry.id)).not.toBeNull();
+	});
+
+	it("is neither checked nor suggested once a collection never expires", async () => {
+		const { runtime } = await offers();
+		host = runtime;
+		await chooseField(runtime, "off");
+		expect(JSON.stringify((await runtime.admin.loadPage("/report")).blocks)).not.toContain("Expiry dates not checked");
 	});
 });

@@ -12,7 +12,7 @@
 import type { PluginContext } from "emdash/plugin";
 
 import { findingId } from "./ids.js";
-import { subtractMonths, type Hit, type Rule, type Thresholds } from "./rules.js";
+import { DAY_MS, subtractMonths, type Hit, type Rule, type Thresholds } from "./rules.js";
 
 export type DismissKind = "review" | "ignore";
 
@@ -30,6 +30,12 @@ export interface Dismissal {
 	until: string | null;
 	by: string | null;
 	at: string;
+	/**
+	 * What exactly was set aside, for a finding that can recur with other
+	 * values: an ignored expiry names its date, so moving the date forward
+	 * and letting it pass again is reported.
+	 */
+	subject?: string;
 }
 
 export interface EntryDismissals {
@@ -38,27 +44,45 @@ export interface EntryDismissals {
 	rules: Partial<Record<Rule, Dismissal>>;
 }
 
-export function isSetAside(dismissals: EntryDismissals | undefined, rule: Rule, now: Date): boolean {
-	const dismissal = dismissals?.rules[rule];
-	if (!dismissal) return false;
-	return dismissal.until === null || Date.parse(dismissal.until) > now.getTime();
+/** The part of a hit a dismissal must match, for rules whose finding can recur with other values. */
+function subjectOf(hit: Hit): string | undefined {
+	return hit.rule === "expired" ? String(hit.params.date) : undefined;
+}
+
+export function hasRunOut(dismissal: Dismissal, now: Date): boolean {
+	return dismissal.until !== null && Date.parse(dismissal.until) <= now.getTime();
+}
+
+export function isSetAside(dismissals: EntryDismissals | undefined, hit: Hit, now: Date): boolean {
+	const dismissal = dismissals?.rules[hit.rule];
+	if (!dismissal || hasRunOut(dismissal, now)) return false;
+	return dismissal.subject === undefined || dismissal.subject === subjectOf(hit);
 }
 
 /** `hits` split into those that stand and those set aside. */
 export function partition(hits: Hit[], dismissals: EntryDismissals | undefined, now: Date) {
 	const active: Hit[] = [];
 	const setAside: Hit[] = [];
-	for (const hit of hits) (isSetAside(dismissals, hit.rule, now) ? setAside : active).push(hit);
+	for (const hit of hits) (isSetAside(dismissals, hit, now) ? setAside : active).push(hit);
 	return { active, setAside };
 }
 
-/** A dismissal for `rule`, or null when the rule cannot be set aside. */
-export function dismissalFor(rule: Rule, thresholds: Thresholds, now: Date, by: string | null): Dismissal | null {
+/** A dismissal for `rule`, or null when the rule cannot be set aside. `hit` is the finding being set aside. */
+export function dismissalFor(
+	rule: Rule,
+	thresholds: Thresholds,
+	now: Date,
+	by: string | null,
+	hit?: Hit,
+): Dismissal | null {
 	const kind = DISMISSIBLE[rule];
 	if (!kind) return null;
-	if (kind === "ignore") return { until: null, by, at: now.toISOString() };
+	if (kind === "ignore") {
+		const subject = hit ? subjectOf(hit) : undefined;
+		return { until: null, by, at: now.toISOString(), ...(subject !== undefined ? { subject } : {}) };
+	}
 	if (rule === "unpublished-changes") {
-		return { until: new Date(now.getTime() + thresholds.pendingDays * 24 * 60 * 60 * 1000).toISOString(), by, at: now.toISOString() };
+		return { until: new Date(now.getTime() + thresholds.pendingDays * DAY_MS).toISOString(), by, at: now.toISOString() };
 	}
 	const months = rule === "stale" ? thresholds.staleMonths : thresholds.draftMonths;
 	return { until: subtractMonths(now, -months).toISOString(), by, at: now.toISOString() };

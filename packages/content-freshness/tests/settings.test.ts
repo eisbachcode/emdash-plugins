@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { applyForm, DEFAULT_SETTINGS, expiryFor, normalizeSettings, thresholdsFor } from "../src/settings.js";
+import {
+	applyForm,
+	DEFAULT_SETTINGS,
+	expiryFor,
+	normalizeSettings,
+	suggestedExpiry,
+	thresholdsFor,
+} from "../src/settings.js";
 
 describe("normalizeSettings", () => {
 	it("returns defaults for nothing stored", () => {
@@ -79,21 +86,25 @@ describe("the expiry field of a collection", () => {
 		{ slug: "valid_until", label: "Valid until" },
 	];
 
-	it("is detected from the field names unless the settings say otherwise", () => {
-		expect(expiryFor(DEFAULT_SETTINGS, "offers", dates)).toEqual({ slug: "valid_until", label: "Valid until" });
+	it("is checked only once the settings choose it", () => {
+		// Opt-in: a site that keeps past events online would otherwise get a
+		// finding for each of them on install.
+		expect(expiryFor(DEFAULT_SETTINGS, "offers", dates)).toBeNull();
+		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "valid_until" });
+		expect(expiryFor(chosen, "offers", dates)).toEqual({ slug: "valid_until", label: "Valid until" });
 	});
 
-	it("can be chosen, or switched off", () => {
-		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "starts_on" });
-		expect(expiryFor(chosen, "offers", dates)).toEqual({ slug: "starts_on", label: "Starts" });
+	it("is suggested until someone decides, and no longer once they chose never", () => {
+		expect(suggestedExpiry(DEFAULT_SETTINGS, "offers", dates)?.slug).toBe("valid_until");
 		const off = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "off" });
+		expect(suggestedExpiry(off, "offers", dates)).toBeNull();
 		expect(expiryFor(off, "offers", dates)).toBeNull();
 	});
 
-	it("goes back to detection for auto, or for a field the collection no longer has", () => {
+	it("goes back to undecided for unset, and checks nothing for a field the collection no longer has", () => {
 		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "starts_on" });
-		expect(applyForm(chosen, { "collection:offers:expiryField": "auto" }).collections).toEqual({});
+		expect(applyForm(chosen, { "collection:offers:expiryField": "unset" }).collections).toEqual({});
 		const gone = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "removed_field" });
-		expect(expiryFor(gone, "offers", dates)?.slug).toBe("valid_until");
+		expect(expiryFor(gone, "offers", dates)).toBeNull();
 	});
 });

@@ -30,8 +30,8 @@ function fakeContext(rows: EntryFindings[], more = false) {
 	return {
 		schema: {
 			listCollections: async () => [
-				{ slug: "pages", label: "Pages", routable: true, urlPattern: "/{slug}" },
-				{ slug: "posts", label: "Posts", routable: true, urlPattern: "/blog/{slug}" },
+				{ slug: "pages", label: "Pages", routable: true, urlPattern: "/{slug}", fields: [], supports: [] },
+				{ slug: "posts", label: "Posts", routable: true, urlPattern: "/blog/{slug}", fields: [], supports: [] },
 			],
 		},
 		storage: {
@@ -62,7 +62,7 @@ const buttons = (blocks: Block[]) =>
 
 describe("the report's entries", () => {
 	it("link each entry to its editor, in its language", async () => {
-		const { blocks } = await buildReportPage(fakeContext([row("about", "de", { title: "Über uns" })]), STATE, "en");
+		const { blocks } = await buildReportPage(fakeContext([row("about", "de", { title: "Über uns" })]), STATE, DEFAULT_SETTINGS, "en");
 		const [section] = sections(blocks);
 		expect(section?.text).toContain("Über uns");
 		expect(section?.accessory).toMatchObject({
@@ -74,7 +74,7 @@ describe("the report's entries", () => {
 	it("name the collection by its label and the priority before the findings", async () => {
 		const entry = row("about", "en");
 		entry.hits.push({ rule: "stale", severity: "medium", params: { since: "2024-05-01" } });
-		const { blocks } = await buildReportPage(fakeContext([entry]), STATE, "en");
+		const { blocks } = await buildReportPage(fakeContext([entry]), STATE, DEFAULT_SETTINGS, "en");
 		expect(sections(blocks)[0]?.text).toBe("about · Pages");
 		const findings = contexts(blocks).find((block) => block.text.startsWith("Should fix:"));
 		expect(findings?.text).toContain("SEO description");
@@ -83,12 +83,12 @@ describe("the report's entries", () => {
 
 	it("tell the translations of one page apart on a multilingual site", async () => {
 		// Without the language, "about" and "about" read as a duplicate.
-		const { blocks } = await buildReportPage(fakeContext([row("about", "de"), row("about", "en")]), STATE, "en");
+		const { blocks } = await buildReportPage(fakeContext([row("about", "de"), row("about", "en")]), STATE, DEFAULT_SETTINGS, "en");
 		expect(sections(blocks).map((section) => section.text).sort()).toEqual(["about · Pages · de", "about · Pages · en"]);
 	});
 
 	it("leave the language out on a single-language site", async () => {
-		const { blocks } = await buildReportPage(fakeContext([row("about", "en"), row("contact", "en")]), STATE, "en");
+		const { blocks } = await buildReportPage(fakeContext([row("about", "en"), row("contact", "en")]), STATE, DEFAULT_SETTINGS, "en");
 		expect(sections(blocks).map((section) => section.text)).toEqual(["about · Pages", "contact · Pages"]);
 	});
 });
@@ -97,7 +97,7 @@ describe("filters and paging", () => {
 	const filtered: ReportView = { collection: "pages", rank: 1, cursor: null };
 
 	it("keep the other filter when one changes", async () => {
-		const { blocks } = await buildReportPage(fakeContext([row("about", "en")]), STATE, "en", filtered);
+		const { blocks } = await buildReportPage(fakeContext([row("about", "en")]), STATE, DEFAULT_SETTINGS, "en", filtered);
 		const [collection, priority] = selects(blocks);
 		const posts = collection?.options.find((option) => option.label === "Posts");
 		expect(viewFrom(posts?.value)).toEqual({ collection: "posts", rank: 1, cursor: null });
@@ -108,7 +108,7 @@ describe("filters and paging", () => {
 	});
 
 	it("page within the filters", async () => {
-		const { blocks } = await buildReportPage(fakeContext([row("about", "en")], true), STATE, "en", filtered);
+		const { blocks } = await buildReportPage(fakeContext([row("about", "en")], true), STATE, DEFAULT_SETTINGS, "en", filtered);
 		const next = buttons(blocks).find((button) => button.action_id === VIEW_ACTION);
 		expect(viewFrom(next?.value)).toEqual({ ...filtered, cursor: "next-page" });
 	});
@@ -116,7 +116,7 @@ describe("filters and paging", () => {
 	it("fall back to all collections when the filtered one is gone", async () => {
 		// The host rejects a select whose initial value matches no option.
 		const gone: ReportView = { collection: "events", rank: null, cursor: "stale" };
-		const { blocks } = await buildReportPage(fakeContext([row("about", "en")]), STATE, "en", gone);
+		const { blocks } = await buildReportPage(fakeContext([row("about", "en")]), STATE, DEFAULT_SETTINGS, "en", gone);
 		expect(validateBlocks(blocks).valid).toBe(true);
 		expect(viewFrom(selects(blocks)[0]?.initial_value)).toEqual({ collection: null, rank: null, cursor: null });
 		expect(sections(blocks)).toHaveLength(1);

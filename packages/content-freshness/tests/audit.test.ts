@@ -1,7 +1,7 @@
 import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { STATE_KEY } from "../src/state.js";
+import { STATE_KEY, SWEEP_VERSION, type State } from "../src/state.js";
 import { failNextCall } from "./bridge-calls.js";
 import { finding, newHost, runSweep, undescribed } from "./host.js";
 
@@ -96,7 +96,15 @@ describe("a sweep that cannot list a collection", () => {
 			entryUpdatedAt: "2026-01-01T00:00:00.000Z",
 			seenIn: "2026-01-01T00:00:00.000Z",
 		});
-		const sweep = { startedAt: new Date().toISOString(), collections: ["gone", "posts"], index: 0, cursor: null, phase: "audit" };
+		const sweep = {
+			version: SWEEP_VERSION,
+			startedAt: new Date().toISOString(),
+			collections: ["gone", "posts"],
+			index: 0,
+			cursor: null,
+			phase: "audit",
+			info: {},
+		};
 		await host.fixtures.plugin.kv(STATE_KEY, { sweep, lastFinishedAt: null });
 
 		host.scheduled.setTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
@@ -105,6 +113,23 @@ describe("a sweep that cannot list a collection", () => {
 
 		expect(await finding(host, "gone", "01GONE")).toBeNull();
 		expect(await host.inspect.kv.get(STATE_KEY)).toMatchObject({ sweep: null });
+	});
+});
+
+describe("a sweep started by an earlier version of the plugin", () => {
+	it("starts over instead of auditing with information it lacks", async () => {
+		host = await newHost();
+		const entry = await undescribed(host, "posts", "after-upgrade");
+		const old = { startedAt: new Date().toISOString(), collections: ["posts"], index: 0, cursor: null, phase: "audit" };
+		await host.fixtures.plugin.kv(STATE_KEY, { sweep: old, lastFinishedAt: null });
+
+		host.scheduled.setTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+		await host.transport.invokeHook("cron", { name: "audit-next-a", data: { step: 1 } });
+		const state = await host.inspect.kv.get<State>(STATE_KEY);
+
+		expect(state?.sweep?.version ?? SWEEP_VERSION).toBe(SWEEP_VERSION);
+		while ((await host.scheduled.run()).processed > 0);
+		expect(await finding(host, "posts", entry.id)).not.toBeNull();
 	});
 });
 

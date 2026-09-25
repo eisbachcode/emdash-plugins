@@ -204,68 +204,111 @@ describe("ulidTime", () => {
 	});
 });
 
+const REVISIONS = { expiry: null, revisions: true };
+
 describe("unpublished changes", () => {
 	const pending = (savedAt: string, extra = {}) =>
 		entry({ draftRevisionId: ulidAt(savedAt), liveRevisionId: ulidAt("2026-01-01T00:00:00.000Z"), ...extra });
+	const found = (item: PluginContentItem, context = REVISIONS) =>
+		evaluateEntry(item, DEFAULT_THRESHOLDS, NOW, context).map((hit) => hit.rule);
 
 	it("are reported once they have waited longer than the threshold", () => {
-		const hits = evaluateEntry(pending("2026-08-01T00:00:00.000Z"), DEFAULT_THRESHOLDS, NOW);
+		const hits = evaluateEntry(pending("2026-08-01T00:00:00.000Z"), DEFAULT_THRESHOLDS, NOW, REVISIONS);
 		expect(hits).toContainEqual({ rule: "unpublished-changes", severity: "medium", params: { since: "2026-08-01" } });
 	});
 
 	it("are not reported while they are recent, or when the draft is the live revision", () => {
-		expect(rules(pending("2026-09-01T00:00:00.000Z"))).not.toContain("unpublished-changes");
+		expect(found(pending("2026-09-01T00:00:00.000Z"))).not.toContain("unpublished-changes");
 		const live = ulidAt("2026-06-01T00:00:00.000Z");
-		expect(rules(entry({ draftRevisionId: live, liveRevisionId: live }))).not.toContain("unpublished-changes");
-		expect(rules(pending("2026-06-01T00:00:00.000Z", { status: "draft" }))).not.toContain("unpublished-changes");
+		expect(found(entry({ draftRevisionId: live, liveRevisionId: live }))).not.toContain("unpublished-changes");
+		expect(found(pending("2026-06-01T00:00:00.000Z", { status: "draft" }))).not.toContain("unpublished-changes");
+	});
+
+	it("are not reported when they are scheduled to go live", () => {
+		// Waiting on purpose; a missed schedule is overdue-schedule's finding.
+		const scheduled = pending("2026-06-01T00:00:00.000Z", { scheduledAt: "2026-10-01T00:00:00.000Z" });
+		expect(found(scheduled)).not.toContain("unpublished-changes");
+	});
+
+	it("mean nothing in a collection without revisions", () => {
+		// A restore there can leave a draft pointer that no save clears.
+		expect(found(pending("2026-06-01T00:00:00.000Z"), { expiry: null, revisions: false })).not.toContain(
+			"unpublished-changes",
+		);
 	});
 
 	it("keep an entry someone is working on from counting as stale", () => {
 		const old = { updatedAt: "2024-01-01T00:00:00.000Z" };
-		expect(rules(pending("2026-09-01T00:00:00.000Z", old))).not.toContain("stale");
+		expect(found(pending("2026-09-01T00:00:00.000Z", old))).not.toContain("stale");
 		// Changes older than the stale threshold do not.
-		expect(rules(pending("2025-01-01T00:00:00.000Z", old))).toContain("stale");
+		expect(found(pending("2025-01-01T00:00:00.000Z", old))).toContain("stale");
+	});
+
+	it("date a draft by its last save, not by the row's updatedAt", () => {
+		// A save to a draft in a collection with revisions leaves updatedAt alone.
+		const draft = entry({
+			status: "draft",
+			updatedAt: "2025-01-01T00:00:00.000Z",
+			draftRevisionId: ulidAt("2026-09-01T00:00:00.000Z"),
+			liveRevisionId: null,
+		});
+		expect(found(draft)).not.toContain("stale-draft");
+		expect(found(draft, { expiry: null, revisions: false })).toContain("stale-draft");
 	});
 });
 
 describe("expired entries", () => {
-	const expiry = { slug: "valid_until", label: "Valid until" };
+	const context = { expiry: { slug: "valid_until", label: "Valid until" }, revisions: false };
 	const until = (value: unknown, extra = {}) =>
-		evaluateEntry(entry({ data: { valid_until: value }, ...extra }), DEFAULT_THRESHOLDS, NOW, expiry).map((hit) => hit.rule);
+		evaluateEntry(entry({ data: { valid_until: value }, ...extra }), DEFAULT_THRESHOLDS, NOW, context).map(
+			(hit) => hit.rule,
+		);
 
-	it("are reported after the day in their expiry field", () => {
-		const [hit] = evaluateEntry(entry({ data: { valid_until: "2026-09-07" } }), DEFAULT_THRESHOLDS, NOW, expiry);
-		expect(hit).toEqual({ rule: "expired", severity: "medium", params: { field: "Valid until", date: "2026-09-07" } });
-		expect(until("2026-09-01T12:00:00.000Z")).toContain("expired");
+	it("are reported once the instant in their expiry field has passed, named in UTC", () => {
+		// EmDash stores a date without a time as midnight in the site's
+		// timezone: 31 January in Berlin is 23:00 UTC the day before.
+		const [hit] = evaluateEntry(entry({ data: { valid_until: "2026-01-30T23:00:00.000Z" } }), DEFAULT_THRESHOLDS, NOW, context);
+		expect(hit).toEqual({
+			rule: "expired",
+			severity: "medium",
+			params: { field: "Valid until", date: "2026-01-30 23:00 UTC" },
+		});
 	});
 
-	it("are not reported on the day itself, while unpublished, or without an expiry field", () => {
-		// NOW is the start of 2026-09-08: a bare date lasts until the day ends.
-		expect(until("2026-09-08")).not.toContain("expired");
-		expect(until("2026-09-01", { status: "draft" })).not.toContain("expired");
+	it("are not reported before the instant, while unpublished, or without a chosen field", () => {
+		expect(until("2026-09-08T00:00:01.000Z")).not.toContain("expired");
+		expect(until("2026-09-01T00:00:00.000Z", { status: "draft" })).not.toContain("expired");
 		expect(until(42)).not.toContain("expired");
-		expect(evaluateEntry(entry({ data: { valid_until: "2026-09-01" } }), DEFAULT_THRESHOLDS, NOW).map((hit) => hit.rule)).not.toContain(
-			"expired",
-		);
+		expect(rules(entry({ data: { valid_until: "2026-09-01T00:00:00.000Z" } }))).not.toContain("expired");
 	});
 });
 
 describe("detectExpiryField", () => {
-	it("picks the first datetime field whose name says when an entry runs out", () => {
-		const fields = [
-			{ slug: "start_date", label: "Starts", type: "datetime" },
-			{ slug: "end_label", label: "End label", type: "string" },
-			{ slug: "valid_until", label: "Valid until", type: "datetime" },
-		];
-		expect(detectExpiryField(fields)).toEqual({ slug: "valid_until", label: "Valid until" });
+	const fields = (...slugs: string[]) => slugs.map((slug) => ({ slug, label: slug }));
+
+	it("picks the first field whose name says when an entry runs out", () => {
+		expect(detectExpiryField(fields("start_date", "valid_until", "end_date"))?.slug).toBe("valid_until");
 	});
 
 	it("recognises the usual names and nothing else", () => {
-		for (const slug of ["end_date", "ends_on", "event_end", "expires_at", "expiry", "deadline", "closing_date", "offer_until"]) {
-			expect(detectExpiryField([{ slug, label: slug, type: "datetime" }])?.slug).toBe(slug);
+		for (const slug of [
+			"end_date",
+			"ends_on",
+			"event_end",
+			"end_datetime",
+			"expires_at",
+			"expiry",
+			"expiration_date",
+			"deadline",
+			"closing_date",
+			"offer_until",
+			"valid_to",
+			"valid_through",
+		]) {
+			expect(detectExpiryField(fields(slug))?.slug).toBe(slug);
 		}
 		for (const slug of ["start_date", "published_on", "weekend", "friend_date"]) {
-			expect(detectExpiryField([{ slug, label: slug, type: "datetime" }])).toBeNull();
+			expect(detectExpiryField(fields(slug))).toBeNull();
 		}
 	});
 });

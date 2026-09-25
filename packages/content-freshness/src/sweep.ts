@@ -21,9 +21,10 @@ import type { PluginContext } from "emdash/plugin";
 import type { EntryDismissals } from "./dismissals.js";
 import { evaluateEntries, store } from "./findings.js";
 import { findingId, ID_BATCH } from "./ids.js";
-import { expiryFor, readSettings, thresholdsFor, type Settings } from "./settings.js";
+import { datetimeFields } from "./rules.js";
+import { contextFor, readSettings, thresholdsFor, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
-import { readState, writeState, type State, type Sweep } from "./state.js";
+import { readState, SWEEP_VERSION, writeState, type CollectionInfo, type State, type Sweep } from "./state.js";
 
 /** The one-shot the "Audit now" button schedules. See `plugin.ts` for why it has its own name. */
 export const AUDIT_NOW_TASK = "audit-now";
@@ -51,7 +52,11 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
 	const [settings, state] = await Promise.all([readSettings(ctx), readState(ctx)]);
 	const now = new Date();
 
-	if (!state.sweep || abandoned(state.sweep, now)) {
+	if (state.sweep && state.sweep.version !== SWEEP_VERSION) {
+		// Written by an earlier version of the plugin: start over, whatever
+		// the event, rather than audit with information the sweep lacks.
+		state.sweep = await newSweep(ctx, settings, now);
+	} else if (!state.sweep || abandoned(state.sweep, now)) {
 		// A follow-up of a sweep that already finished has nothing to do.
 		if (!starts) return;
 		state.sweep = await newSweep(ctx, settings, now);
@@ -70,20 +75,21 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
  */
 async function newSweep(ctx: PluginContext, settings: Settings, now: Date): Promise<Sweep> {
 	const audited = (await listCollections(ctx)).filter((collection) => !thresholdsFor(settings, collection.slug).skip);
-	const dateFields: NonNullable<Sweep["dateFields"]> = {};
+	const info: Record<string, CollectionInfo> = {};
 	for (const collection of audited) {
-		const fields = collection.fields
-			.filter((field) => field.type === "datetime")
-			.map((field) => ({ slug: field.slug, label: field.label }));
-		if (fields.length > 0) dateFields[collection.slug] = fields;
+		info[collection.slug] = {
+			dateFields: datetimeFields(collection.fields),
+			revisions: collection.supports.includes("revisions"),
+		};
 	}
 	return {
+		version: SWEEP_VERSION,
 		startedAt: now.toISOString(),
 		collections: audited.map((collection) => collection.slug),
 		index: 0,
 		cursor: null,
 		phase: "audit",
-		dateFields,
+		info,
 	};
 }
 
@@ -164,7 +170,7 @@ async function auditPage(
 			now,
 			sweep.startedAt,
 			dismissals as Map<string, EntryDismissals>,
-			expiryFor(settings, collection, sweep.dateFields?.[collection] ?? []),
+			contextFor(settings, collection, sweep.info[collection]),
 		),
 	);
 

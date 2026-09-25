@@ -14,7 +14,7 @@ import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
 import { ID_BATCH } from "./ids.js";
-import { DEFAULT_THRESHOLDS, detectExpiryField, type ExpiryField, type Thresholds } from "./rules.js";
+import { DEFAULT_THRESHOLDS, detectExpiryField, type EntryContext, type ExpiryField, type Thresholds } from "./rules.js";
 
 export const SETTINGS_KEY = "settings";
 
@@ -25,7 +25,10 @@ export const SETTINGS_KEY = "settings";
 export interface CollectionOverride {
 	staleMonths?: number;
 	draftMonths?: number;
-	/** The `datetime` field entries expire after, or `"off"`. Unset: detected from the field names. */
+	/**
+	 * The `datetime` field entries expire after, or `"off"` for never. Unset,
+	 * no expiry is checked and the report suggests a field whose name fits.
+	 */
 	expiryField?: string;
 	/** Leave the collection out of the audit altogether. */
 	skip?: boolean;
@@ -51,9 +54,9 @@ const SLUG = /^[a-z][a-z0-9_]*$/;
 /** A form field for one collection's setting: `collection:<slug>:<setting>`. */
 const COLLECTION_FIELD = /^collection:([a-z][a-z0-9_]*):(staleMonths|draftMonths|expiryField|skip)$/;
 
-/** The expiry select's value for "detect it from the field names". */
-export const EXPIRY_AUTO = "auto";
-/** The expiry select's value for "entries of this collection never expire". */
+/** The expiry select's value for "not chosen yet": nothing checked, a field suggested. */
+export const EXPIRY_UNSET = "unset";
+/** The expiry select's value for "entries of this collection never expire": nothing checked or suggested. */
 export const EXPIRY_OFF = "off";
 
 export function collectionField(slug: string, setting: keyof CollectionOverride): string {
@@ -75,20 +78,33 @@ export function thresholdsFor(settings: Settings, collection: string): Threshold
 }
 
 /**
- * The field `collection`'s entries expire after: the one the settings name,
- * none when they say off, else the first whose name says so. `fields` are the
- * collection's `datetime` fields.
+ * The field `collection`'s entries expire after, when the settings chose one
+ * the collection still has. Expiry is opt-in: a site that keeps past events
+ * online as an archive would otherwise get a finding for every one of them
+ * the moment the plugin is installed. `fields` are the collection's
+ * `datetime` fields.
  */
-export function expiryFor(
+export function expiryFor(settings: Settings, collection: string, fields: ExpiryField[]): ExpiryField | null {
+	const chosen = settings.collections[collection]?.expiryField;
+	return fields.find((field) => field.slug === chosen) ?? null;
+}
+
+/** What the rules need to know about `collection`, from what a sweep or a check read about it. */
+export function contextFor(
 	settings: Settings,
 	collection: string,
-	fields: Array<{ slug: string; label: string }>,
-): ExpiryField | null {
-	const chosen = settings.collections[collection]?.expiryField;
-	if (chosen === EXPIRY_OFF) return null;
-	const named = chosen ? fields.find((field) => field.slug === chosen) : undefined;
-	if (named) return { slug: named.slug, label: named.label || named.slug };
-	return detectExpiryField(fields.map((field) => ({ ...field, type: "datetime" })));
+	info: { dateFields: ExpiryField[]; revisions: boolean } | undefined,
+): EntryContext {
+	return {
+		expiry: expiryFor(settings, collection, info?.dateFields ?? []),
+		revisions: info?.revisions ?? false,
+	};
+}
+
+/** A field to suggest for a collection whose expiry nobody has decided on yet. */
+export function suggestedExpiry(settings: Settings, collection: string, fields: ExpiryField[]): ExpiryField | null {
+	if (settings.collections[collection]?.expiryField !== undefined) return null;
+	return detectExpiryField(fields);
 }
 
 type NumberKey = "pageSize" | "staleMonths" | "draftMonths" | "descriptionMin" | "descriptionMax" | "pendingDays";
@@ -208,7 +224,7 @@ export function applyForm(current: Settings, values: Record<string, unknown>, sh
 		const own = (collections[slug] ??= {});
 		if (setting === "skip") own.skip = value === true;
 		else if (setting === "expiryField") {
-			if (typeof value === "string" && value !== EXPIRY_AUTO) own.expiryField = value;
+			if (typeof value === "string" && value !== EXPIRY_UNSET) own.expiryField = value;
 			else delete own.expiryField;
 		} else if (isSet(value)) own[setting] = value;
 		else delete own[setting];

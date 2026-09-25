@@ -7,7 +7,7 @@ import type { PluginContext } from "emdash/plugin";
 
 import {
 	dismissalFor,
-	isSetAside,
+	hasRunOut,
 	partition,
 	readDismissals,
 	writeDismissals,
@@ -16,8 +16,8 @@ import {
 } from "./dismissals.js";
 import { evaluateEntries, forget, storeOne, type EntryFindings, type EntryRef } from "./findings.js";
 import { findingId } from "./ids.js";
-import { evaluateEntry, type Hit, type Rule } from "./rules.js";
-import { expiryFor, readSettings, thresholdsFor } from "./settings.js";
+import { datetimeFields, evaluateEntry, type Hit, type Rule } from "./rules.js";
+import { contextFor, readSettings, thresholdsFor } from "./settings.js";
 
 export interface PanelAction {
 	kind: "set-aside" | "undo";
@@ -53,11 +53,18 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 	}
 
 	const now = new Date();
+	const context = contextFor(
+		settings,
+		ref.collection,
+		schema ? { dateFields: datetimeFields(schema.fields), revisions: schema.supports.includes("revisions") } : undefined,
+	);
+	const hits = evaluateEntry(entry, thresholds, now, context);
+
 	const rules = { ...stored?.rules };
 	// Reviews that have run out are dropped whenever the entry is checked.
 	let changed = false;
-	for (const rule of Object.keys(rules) as Rule[]) {
-		if (!isSetAside({ collection: ref.collection, entryId: ref.id, rules }, rule, now)) {
+	for (const [rule, dismissal] of Object.entries(rules) as Array<[Rule, Dismissal]>) {
+		if (hasRunOut(dismissal, now)) {
 			delete rules[rule];
 			changed = true;
 		}
@@ -66,7 +73,8 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 		if (action.kind === "undo") {
 			delete rules[action.rule];
 		} else {
-			const dismissal = dismissalFor(action.rule, thresholds, now, action.by);
+			const hit = hits.find((candidate) => candidate.rule === action.rule);
+			const dismissal = dismissalFor(action.rule, thresholds, now, action.by, hit);
 			if (dismissal) rules[action.rule] = dismissal;
 		}
 		changed = true;
@@ -74,12 +82,10 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 	const dismissals: EntryDismissals = { collection: ref.collection, entryId: ref.id, rules };
 	if (changed) await writeDismissals(ctx, dismissals);
 
-	const dateFields = (schema?.fields ?? []).filter((field) => field.type === "datetime");
-	const expiry = expiryFor(settings, ref.collection, dateFields);
 	const keyed = new Map([[findingId(ref.collection, ref.id), dismissals]]);
-	const evaluated = evaluateEntries(ref.collection, [entry], thresholds, now, now.toISOString(), keyed, expiry);
+	const evaluated = evaluateEntries(ref.collection, [entry], thresholds, now, now.toISOString(), keyed, context);
 	await storeOne(ctx, evaluated, existing);
-	const { active, setAside } = partition(evaluateEntry(entry, thresholds, now, expiry), dismissals, now);
+	const { active, setAside } = partition(hits, dismissals, now);
 	return { active, setAside: setAside.map((hit) => ({ hit, dismissal: dismissals.rules[hit.rule]! })) };
 }
 
