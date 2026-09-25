@@ -11,10 +11,22 @@ entry that earned them rather than to a URL string.
 > and an Analytics panel in the entry editor. Tested on EmDash 0.39 and 0.40.
 > See "Not in this version".
 
+The screenshots show demo data on a site made from EmDash's blog template.
+
+## The dashboard widget
+
+A **Traffic** card on the dashboard: visits and page views for the last
+seven days against the week before, the five most viewed pages with the
+entry they belong to, and when the numbers were last synced.
+
+<img src="https://raw.githubusercontent.com/eisbachcode/emdash-plugins/main/packages/analytics/screenshots/widget.png" width="554" alt="The Traffic widget: visits and page views for the last 7 days with their change against the previous week, and the five most viewed pages with entry title, path and views">
+
 ## The Analytics page
 
 **Plugins → Analytics** in the admin sidebar, or "Open analytics" on the
 dashboard widget. Editors and admins see it.
+
+<img src="https://raw.githubusercontent.com/eisbachcode/emdash-plugins/main/packages/analytics/screenshots/analytics-page.png" width="820" alt="The Analytics page over 30 days: visits and page views with their change, a daily chart, top entries with collection, path, views and visits, and tables of referrers and countries">
 
 The page asks the provider live on every load, so it has numbers from the
 first minute after setup; it does not wait for the sync. It only ever asks
@@ -55,9 +67,14 @@ views, so the right one can be copied into the settings.
 The check only reads; values are entered in the plugin's settings form. It
 makes one request to Cloudflare.
 
+<img src="https://raw.githubusercontent.com/eisbachcode/emdash-plugins/main/packages/analytics/screenshots/setup-check.png" width="820" alt="The setup check with every row OK: data source, site URL, content index with 8 entries matched, scheduled sync and last sync">
+
 ## Analytics per entry
 
 **Plugins → Analytics per entry**, or "Per entry" on the Analytics page.
+
+<img src="https://raw.githubusercontent.com/eisbachcode/emdash-plugins/main/packages/analytics/screenshots/per-entry.png" width="820" alt="Analytics per entry: every published entry with its collection, path, page views over 7 and 30 days and publish date, most viewed first">
+
 Every published entry with its page views over the last 7 and 30 days,
 today included, by collection or across all of them. Click a column header
 to sort; sorting ascending puts the entries nobody visited first, which
@@ -84,6 +101,8 @@ URL.
 
 ## The editor panel
 
+<img src="https://raw.githubusercontent.com/eisbachcode/emdash-plugins/main/packages/analytics/screenshots/editor-panel.png" width="375" alt="The Analytics panel in the entry editor: page views over the last 7 and 30 days and the path they are counted at">
+
 In the entry editor, the **Analytics** panel shows that entry's 7- and 30-day
 page views and the path they are counted at, and on a translated entry
 each language's numbers and their total. An entry that is not published
@@ -97,6 +116,7 @@ at a public URL says so instead.
 | A Cloudflare account | with Web Analytics enabled for the site |
 | An API token | permission **Account → Account Analytics → Read** |
 | `EMDASH_ENCRYPTION_KEY` | set on the site, or the API token cannot be stored (`npx emdash secrets generate`) |
+| URL patterns | each collection needs a **URL Pattern** (under Content Types), or no page can be matched to its entry. Sites made from EmDash's blog template start without them; the setup check says so |
 | Scheduled tasks | the sync runs as a plugin cron task. On Cloudflare Workers that needs the Cron Trigger and `scheduled` handler from EmDash's Cloudflare deployment guide; on Node, EmDash runs them itself |
 
 ### The token scope, precisely

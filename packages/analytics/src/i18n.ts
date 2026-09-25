@@ -69,7 +69,7 @@ const en = {
 	noEntriesYet: "No entries yet",
 	noEntriesIndexing: "The content index is still being built. Entries appear as it progresses.",
 	noEntriesNoUrls:
-		"No published entry has a public URL. Check that the site URL is set in EmDash and that the collections have URL patterns.",
+		"No published entry has a public URL. Check that the site URL is set in EmDash and that each collection has a URL Pattern (under Content Types), then press Rebuild index on the per-entry page.",
 	noEntriesHere: "No published entries here.",
 	panelNoPage: "No page for this entry yet",
 	panelNoPageDetail: "Views appear once the entry is published at a public URL and the next sync has run.",
@@ -123,7 +123,7 @@ const en = {
 	hostsNone:
 		"Cloudflare reports this site tag under {reported}, but the plugin counts only {counted}. Change Hostnames to count in the plugin's settings.",
 	siteUrlMissing:
-		"EmDash has no site URL stored, so entries have no public address and page views cannot be matched to them. EmDash stores it (the emdash:site_url option) when the setup wizard runs on the live domain.",
+		"EmDash has no site URL, so entries have no public address and page views cannot be matched to them. EmDash stores it (the emdash:site_url option) when the setup wizard runs on the live domain; a server that was already running picks it up after a restart.",
 	needsSiteUrl: "Needs the site URL.",
 	indexMatched: { one: "{count} entry matched to its page.", other: "{count} entries matched to their pages." },
 	schedulerNotScheduled: "The sync is not scheduled yet. Opening the dashboard schedules it.",
@@ -254,7 +254,7 @@ const de: Record<MessageKey, Message> = {
 	noEntriesYet: "Noch keine Einträge",
 	noEntriesIndexing: "Der Inhaltsindex wird noch aufgebaut. Einträge erscheinen nach und nach.",
 	noEntriesNoUrls:
-		"Kein veröffentlichter Eintrag hat eine öffentliche URL. Prüfe, ob die URL der Webseite in EmDash eingetragen ist und die Kollektionen URL-Muster haben.",
+		"Kein veröffentlichter Eintrag hat eine öffentliche URL. Prüfe, ob die URL der Website in EmDash eingetragen ist und jede Kollektion ein URL-Muster hat (unter Inhaltstypen), und drücke dann „Index neu aufbauen“ auf der Seite pro Eintrag.",
 	noEntriesHere: "Hier gibt es keine veröffentlichten Einträge.",
 	panelNoPage: "Noch keine Seite für diesen Eintrag",
 	panelNoPageDetail:
@@ -310,7 +310,7 @@ const de: Record<MessageKey, Message> = {
 	hostsNone:
 		"Cloudflare meldet dieses Site-Tag unter {reported}, das Plugin zählt aber nur {counted}. Ändere Hostnames to count in den Einstellungen des Plugins.",
 	siteUrlMissing:
-		"EmDash hat keine Website-URL gespeichert, deshalb haben Einträge keine öffentliche Adresse und Seitenaufrufe lassen sich ihnen nicht zuordnen. EmDash speichert sie (die Option emdash:site_url), wenn der Einrichtungsassistent auf der Live-Domain läuft.",
+		"EmDash hat keine Website-URL, deshalb haben Einträge keine öffentliche Adresse und Seitenaufrufe lassen sich ihnen nicht zuordnen. EmDash speichert sie (die Option emdash:site_url), wenn der Einrichtungsassistent auf der Live-Domain läuft; ein Server, der da schon lief, übernimmt sie nach einem Neustart.",
 	needsSiteUrl: "Braucht die Website-URL.",
 	indexMatched: {
 		one: "{count} Eintrag ist seiner Seite zugeordnet.",
