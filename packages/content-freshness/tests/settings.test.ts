@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyForm, DEFAULT_SETTINGS, normalizeSettings, thresholdsFor } from "../src/settings.js";
+import { applyForm, DEFAULT_SETTINGS, expiryFor, normalizeSettings, thresholdsFor } from "../src/settings.js";
 
 describe("normalizeSettings", () => {
 	it("returns defaults for nothing stored", () => {
@@ -70,5 +70,30 @@ describe("settings per collection", () => {
 
 	it("drop what is not a collection slug", () => {
 		expect(normalizeSettings({ collections: { "Bad Slug": { skip: true }, pages: "nonsense" } }).collections).toEqual({});
+	});
+});
+
+describe("the expiry field of a collection", () => {
+	const dates = [
+		{ slug: "starts_on", label: "Starts" },
+		{ slug: "valid_until", label: "Valid until" },
+	];
+
+	it("is detected from the field names unless the settings say otherwise", () => {
+		expect(expiryFor(DEFAULT_SETTINGS, "offers", dates)).toEqual({ slug: "valid_until", label: "Valid until" });
+	});
+
+	it("can be chosen, or switched off", () => {
+		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "starts_on" });
+		expect(expiryFor(chosen, "offers", dates)).toEqual({ slug: "starts_on", label: "Starts" });
+		const off = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "off" });
+		expect(expiryFor(off, "offers", dates)).toBeNull();
+	});
+
+	it("goes back to detection for auto, or for a field the collection no longer has", () => {
+		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "starts_on" });
+		expect(applyForm(chosen, { "collection:offers:expiryField": "auto" }).collections).toEqual({});
+		const gone = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "removed_field" });
+		expect(expiryFor(gone, "offers", dates)?.slug).toBe("valid_until");
 	});
 });

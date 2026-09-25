@@ -62,6 +62,11 @@ const en = {
 	reportMissingHelp: "Switch off if your templates always render a description of their own.",
 	pageSize: "Entries per run",
 	schedule: "Schedule (cron, UTC)",
+	pendingDays: "Days before unpublished changes to a published entry count as forgotten",
+	collectionExpiry: "{collection}: expires after the date in",
+	expiryDetected: "Detected: {field}",
+	expiryNoneDetected: "Detect from the field name (none matches)",
+	expiryOff: "Never expires",
 	collectionStale: "{collection}: months before an entry is stale (empty: {months}, 0: never)",
 	collectionDraft: "{collection}: months before a draft is forgotten (empty: {months}, 0: never)",
 	collectionSkip: "{collection}: leave out of the audit",
@@ -77,6 +82,8 @@ const en = {
 	hitDescriptionLength: "SEO description is {length} characters; aim for {min}–{max}.",
 	hitStale: "Not touched since {since}.",
 	hitStaleDraft: "Draft untouched since {since}.",
+	hitUnpublishedChanges: "Changes saved on {since} are not published yet.",
+	hitExpired: "{field} was {date}, and the entry is still published.",
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;
@@ -133,6 +140,11 @@ const de: Record<MessageKey, Message> = {
 	reportMissingHelp: "Schalte das ab, wenn deine Templates immer eine eigene Beschreibung ausgeben.",
 	pageSize: "Einträge pro Lauf",
 	schedule: "Zeitplan (Cron, UTC)",
+	pendingDays: "Tage, bis unveröffentlichte Änderungen an einem veröffentlichten Eintrag als vergessen gelten",
+	collectionExpiry: "{collection}: läuft ab nach dem Datum in",
+	expiryDetected: "Erkannt: {field}",
+	expiryNoneDetected: "Am Feldnamen erkennen (keiner passt)",
+	expiryOff: "Läuft nie ab",
 	collectionStale: "{collection}: Monate, bis ein Eintrag veraltet ist (leer: {months}, 0: nie)",
 	collectionDraft: "{collection}: Monate, bis ein Entwurf vergessen ist (leer: {months}, 0: nie)",
 	collectionSkip: "{collection}: von der Prüfung ausnehmen",
@@ -148,6 +160,8 @@ const de: Record<MessageKey, Message> = {
 	hitDescriptionLength: "Die SEO-Beschreibung hat {length} Zeichen; empfohlen sind {min}–{max}.",
 	hitStale: "Seit {since} nicht bearbeitet.",
 	hitStaleDraft: "Entwurf seit {since} nicht bearbeitet.",
+	hitUnpublishedChanges: "Am {since} gespeicherte Änderungen sind noch nicht veröffentlicht.",
+	hitExpired: "{field} war am {date}, der Eintrag ist aber noch veröffentlicht.",
 };
 
 const catalogues = { en, de } as const;

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { describeHit } from "../src/describe.js";
-import { DEFAULT_THRESHOLDS, evaluateEntry, parseDate, subtractMonths } from "../src/rules.js";
+import {
+	DEFAULT_THRESHOLDS,
+	detectExpiryField,
+	evaluateEntry,
+	parseDate,
+	subtractMonths,
+	ulidTime,
+} from "../src/rules.js";
 import type { PluginContentItem } from "@eisbachcode/emdash-plugin-shared";
 
 const NOW = new Date("2026-09-08T00:00:00.000Z");
@@ -169,5 +176,96 @@ describe("parseDate", () => {
 		expect(parseDate(undefined)).toBeNull();
 		expect(parseDate("nope")).toBeNull();
 		expect(parseDate("2026-01-01T00:00:00.000Z")).toBeInstanceOf(Date);
+	});
+});
+
+/** A ULID minted at `at`: the time in its first ten characters, anything after. */
+function ulidAt(at: string): string {
+	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+	let ms = Date.parse(at);
+	let time = "";
+	for (let i = 0; i < 10; i++) {
+		time = alphabet[ms % 32] + time;
+		ms = Math.floor(ms / 32);
+	}
+	return `${time}0000000000000000`;
+}
+
+describe("ulidTime", () => {
+	it("reads the time a ULID was minted", () => {
+		// The example from the ULID specification.
+		expect(ulidTime("01ARYZ6S41TSV4RRFFQ69G5FAV")?.getTime()).toBe(1469918176385);
+		expect(ulidTime(ulidAt("2026-08-01T10:00:00.000Z"))?.toISOString()).toBe("2026-08-01T10:00:00.000Z");
+	});
+
+	it("returns null for anything that is not a ULID", () => {
+		expect(ulidTime("rev-1")).toBeNull();
+		expect(ulidTime(null)).toBeNull();
+	});
+});
+
+describe("unpublished changes", () => {
+	const pending = (savedAt: string, extra = {}) =>
+		entry({ draftRevisionId: ulidAt(savedAt), liveRevisionId: ulidAt("2026-01-01T00:00:00.000Z"), ...extra });
+
+	it("are reported once they have waited longer than the threshold", () => {
+		const hits = evaluateEntry(pending("2026-08-01T00:00:00.000Z"), DEFAULT_THRESHOLDS, NOW);
+		expect(hits).toContainEqual({ rule: "unpublished-changes", severity: "medium", params: { since: "2026-08-01" } });
+	});
+
+	it("are not reported while they are recent, or when the draft is the live revision", () => {
+		expect(rules(pending("2026-09-01T00:00:00.000Z"))).not.toContain("unpublished-changes");
+		const live = ulidAt("2026-06-01T00:00:00.000Z");
+		expect(rules(entry({ draftRevisionId: live, liveRevisionId: live }))).not.toContain("unpublished-changes");
+		expect(rules(pending("2026-06-01T00:00:00.000Z", { status: "draft" }))).not.toContain("unpublished-changes");
+	});
+
+	it("keep an entry someone is working on from counting as stale", () => {
+		const old = { updatedAt: "2024-01-01T00:00:00.000Z" };
+		expect(rules(pending("2026-09-01T00:00:00.000Z", old))).not.toContain("stale");
+		// Changes older than the stale threshold do not.
+		expect(rules(pending("2025-01-01T00:00:00.000Z", old))).toContain("stale");
+	});
+});
+
+describe("expired entries", () => {
+	const expiry = { slug: "valid_until", label: "Valid until" };
+	const until = (value: unknown, extra = {}) =>
+		evaluateEntry(entry({ data: { valid_until: value }, ...extra }), DEFAULT_THRESHOLDS, NOW, expiry).map((hit) => hit.rule);
+
+	it("are reported after the day in their expiry field", () => {
+		const [hit] = evaluateEntry(entry({ data: { valid_until: "2026-09-07" } }), DEFAULT_THRESHOLDS, NOW, expiry);
+		expect(hit).toEqual({ rule: "expired", severity: "medium", params: { field: "Valid until", date: "2026-09-07" } });
+		expect(until("2026-09-01T12:00:00.000Z")).toContain("expired");
+	});
+
+	it("are not reported on the day itself, while unpublished, or without an expiry field", () => {
+		// NOW is the start of 2026-09-08: a bare date lasts until the day ends.
+		expect(until("2026-09-08")).not.toContain("expired");
+		expect(until("2026-09-01", { status: "draft" })).not.toContain("expired");
+		expect(until(42)).not.toContain("expired");
+		expect(evaluateEntry(entry({ data: { valid_until: "2026-09-01" } }), DEFAULT_THRESHOLDS, NOW).map((hit) => hit.rule)).not.toContain(
+			"expired",
+		);
+	});
+});
+
+describe("detectExpiryField", () => {
+	it("picks the first datetime field whose name says when an entry runs out", () => {
+		const fields = [
+			{ slug: "start_date", label: "Starts", type: "datetime" },
+			{ slug: "end_label", label: "End label", type: "string" },
+			{ slug: "valid_until", label: "Valid until", type: "datetime" },
+		];
+		expect(detectExpiryField(fields)).toEqual({ slug: "valid_until", label: "Valid until" });
+	});
+
+	it("recognises the usual names and nothing else", () => {
+		for (const slug of ["end_date", "ends_on", "event_end", "expires_at", "expiry", "deadline", "closing_date", "offer_until"]) {
+			expect(detectExpiryField([{ slug, label: slug, type: "datetime" }])?.slug).toBe(slug);
+		}
+		for (const slug of ["start_date", "published_on", "weekend", "friend_date"]) {
+			expect(detectExpiryField([{ slug, label: slug, type: "datetime" }])).toBeNull();
+		}
 	});
 });

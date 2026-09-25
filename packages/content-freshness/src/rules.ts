@@ -20,6 +20,8 @@ export const RULES = [
 	"stale",
 	"stale-draft",
 	"description-length",
+	"unpublished-changes",
+	"expired",
 ] as const;
 
 export type Rule = (typeof RULES)[number];
@@ -44,6 +46,8 @@ export interface Thresholds {
 	descriptionMax: number;
 	/** Off for a site whose templates always render a description of their own. */
 	reportMissingDescriptions: boolean;
+	/** Changes saved to a published entry and left unpublished for longer than this are reported. */
+	pendingDays: number;
 }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
@@ -52,7 +56,16 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 	descriptionMin: 50,
 	descriptionMax: 160,
 	reportMissingDescriptions: true,
+	pendingDays: 14,
 };
+
+/** The `datetime` field after which a collection's entries have expired. */
+export interface ExpiryField {
+	slug: string;
+	label: string;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * How long a passed schedule may wait before it counts as missed. EmDash
@@ -75,10 +88,34 @@ function fallbackField(data: Record<string, unknown>): string | null {
 	return null;
 }
 
-export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, now: Date): Hit[] {
+export function evaluateEntry(
+	entry: PluginContentItem,
+	thresholds: Thresholds,
+	now: Date,
+	expiry: ExpiryField | null = null,
+): Hit[] {
 	const hits: Hit[] = [];
 	const published = entry.status === "published";
 	const updatedAt = parseDate(entry.updatedAt);
+
+	// Changes saved to a published entry wait in a draft revision until they
+	// are published; publishing or discarding them clears it. Revision ids are
+	// ULIDs, and a save on a published entry leaves `updatedAt` alone, so the
+	// id is the only place that says when the changes were saved.
+	const pendingSince =
+		published && entry.draftRevisionId && entry.draftRevisionId !== entry.liveRevisionId
+			? ulidTime(entry.draftRevisionId)
+			: null;
+	if (pendingSince && pendingSince.getTime() < now.getTime() - thresholds.pendingDays * DAY_MS) {
+		hits.push({ rule: "unpublished-changes", severity: "medium", params: { since: day(pendingSince) } });
+	}
+
+	if (published && expiry) {
+		const ends = expiryDate(entry.data[expiry.slug]);
+		if (ends && ends.at.getTime() <= now.getTime()) {
+			hits.push({ rule: "expired", severity: "medium", params: { field: expiry.label, date: ends.day } });
+		}
+	}
 
 	// A schedule that came and went. On an unpublished entry it was meant to
 	// publish it; on a published one, to publish its pending changes. Either
@@ -123,9 +160,17 @@ export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, 
 	}
 
 	// A threshold of 0 switches the rule off: a collection whose entries are
-	// not expected to change, such as testimonials.
+	// not expected to change, such as testimonials. Changes saved within the
+	// stale threshold mean someone is working on the entry, so it is not
+	// stale; if they stop, `unpublished-changes` says so.
+	const beingEdited = pendingSince !== null && pendingSince >= subtractMonths(now, thresholds.staleMonths);
 	if (updatedAt) {
-		if (published && thresholds.staleMonths > 0 && updatedAt < subtractMonths(now, thresholds.staleMonths)) {
+		if (
+			published &&
+			thresholds.staleMonths > 0 &&
+			!beingEdited &&
+			updatedAt < subtractMonths(now, thresholds.staleMonths)
+		) {
 			hits.push({ rule: "stale", severity: "medium", params: { since: day(updatedAt) } });
 		}
 		if (entry.status === "draft" && thresholds.draftMonths > 0 && updatedAt < subtractMonths(now, thresholds.draftMonths)) {
@@ -155,6 +200,40 @@ export function subtractMonths(from: Date, months: number): Date {
 	).getUTCDate();
 	shifted.setUTCDate(Math.min(date, lastDay));
 	return shifted;
+}
+
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** The time a ULID was minted, from its first ten characters; null for anything that is not a ULID. */
+export function ulidTime(id: string | null | undefined): Date | null {
+	if (!id || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)) return null;
+	let ms = 0;
+	for (const char of id.slice(0, 10).toUpperCase()) ms = ms * 32 + CROCKFORD.indexOf(char);
+	return new Date(ms);
+}
+
+/**
+ * When a `datetime` value runs out, and the day to name. A bare date, as a
+ * date-only widget stores it, lasts until the end of that day.
+ */
+export function expiryDate(value: unknown): { at: Date; day: string } | null {
+	if (typeof value !== "string") return null;
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		const start = parseDate(`${value}T00:00:00.000Z`);
+		return start ? { at: new Date(start.getTime() + DAY_MS), day: value } : null;
+	}
+	const at = parseDate(value);
+	return at ? { at, day: day(at) } : null;
+}
+
+/** Field names that say when an entry stops being current. */
+const EXPIRY_NAME =
+	/(?:^|_)(?:end|ends|until|expires?|expiry|deadline|closes?|closing)(?:_at|_date|_on|_time)?$/;
+
+/** The first `datetime` field whose name says when an entry runs out. */
+export function detectExpiryField(fields: Array<{ slug: string; label: string; type: string }>): ExpiryField | null {
+	const field = fields.find((candidate) => candidate.type === "datetime" && EXPIRY_NAME.test(candidate.slug));
+	return field ? { slug: field.slug, label: field.label || field.slug } : null;
 }
 
 /** Tolerant date parse — a malformed timestamp is skipped, not thrown on. */

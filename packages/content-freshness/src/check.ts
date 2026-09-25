@@ -17,7 +17,7 @@ import {
 import { evaluateEntries, forget, storeOne, type EntryFindings, type EntryRef } from "./findings.js";
 import { findingId } from "./ids.js";
 import { evaluateEntry, type Hit, type Rule } from "./rules.js";
-import { readSettings, thresholdsFor } from "./settings.js";
+import { expiryFor, readSettings, thresholdsFor } from "./settings.js";
 
 export interface PanelAction {
 	kind: "set-aside" | "undo";
@@ -34,16 +34,17 @@ export interface PanelView {
 
 /**
  * Apply `action`, check the entry, store its row and return what the panel
- * shows. Four `ctx` calls; one more for a changed row, one more for an
+ * shows. Five `ctx` calls; one more for a changed row, one more for an
  * action or an expired review.
  */
 export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: PanelAction): Promise<PanelView> {
 	if (!ctx.content) return { active: [], setAside: [] };
-	const [settings, entry, stored, existing] = await Promise.all([
+	const [settings, entry, stored, existing, schema] = await Promise.all([
 		readSettings(ctx),
 		ctx.content.get(ref.collection, ref.id),
 		readDismissals(ctx, ref.collection, ref.id),
 		ctx.storage.findings.get(findingId(ref.collection, ref.id)) as Promise<EntryFindings | null>,
+		ctx.schema ? ctx.schema.getCollection(ref.collection) : Promise.resolve(null),
 	]);
 	const thresholds = thresholdsFor(settings, ref.collection);
 	if (!entry || thresholds.skip) {
@@ -73,9 +74,12 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 	const dismissals: EntryDismissals = { collection: ref.collection, entryId: ref.id, rules };
 	if (changed) await writeDismissals(ctx, dismissals);
 
+	const dateFields = (schema?.fields ?? []).filter((field) => field.type === "datetime");
+	const expiry = expiryFor(settings, ref.collection, dateFields);
 	const keyed = new Map([[findingId(ref.collection, ref.id), dismissals]]);
-	await storeOne(ctx, evaluateEntries(ref.collection, [entry], thresholds, now, now.toISOString(), keyed), existing);
-	const { active, setAside } = partition(evaluateEntry(entry, thresholds, now), dismissals, now);
+	const evaluated = evaluateEntries(ref.collection, [entry], thresholds, now, now.toISOString(), keyed, expiry);
+	await storeOne(ctx, evaluated, existing);
+	const { active, setAside } = partition(evaluateEntry(entry, thresholds, now, expiry), dismissals, now);
 	return { active, setAside: setAside.map((hit) => ({ hit, dismissal: dismissals.rules[hit.rule]! })) };
 }
 

@@ -16,6 +16,8 @@ export interface Sweep {
 	/** `content.list` cursor within `collections[index]`. */
 	cursor: string | null;
 	phase: "audit" | "cleanup";
+	/** Each collection's `datetime` fields, read with the collection list, for the expiry rule. */
+	dateFields?: Record<string, Array<{ slug: string; label: string }>>;
 }
 
 export interface State {

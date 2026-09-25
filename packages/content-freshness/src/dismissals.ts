@@ -4,8 +4,9 @@
  *
  * "Mark as reviewed" holds a time-based finding back until the threshold has
  * run out again: an imprint that is still correct should not be edited just
- * to make the report quiet. "Ignore" holds a description finding back for
- * good. A missed schedule cannot be set aside.
+ * to make the report quiet. "Ignore" holds a description finding, or an
+ * expiry on a page kept online as an archive, back for good. A missed
+ * schedule cannot be set aside.
  */
 
 import type { PluginContext } from "emdash/plugin";
@@ -20,6 +21,8 @@ export const DISMISSIBLE: Partial<Record<Rule, DismissKind>> = {
 	"stale-draft": "review",
 	"missing-description": "ignore",
 	"description-length": "ignore",
+	"unpublished-changes": "review",
+	"expired": "ignore",
 };
 
 export interface Dismissal {
@@ -54,6 +57,9 @@ export function dismissalFor(rule: Rule, thresholds: Thresholds, now: Date, by: 
 	const kind = DISMISSIBLE[rule];
 	if (!kind) return null;
 	if (kind === "ignore") return { until: null, by, at: now.toISOString() };
+	if (rule === "unpublished-changes") {
+		return { until: new Date(now.getTime() + thresholds.pendingDays * 24 * 60 * 60 * 1000).toISOString(), by, at: now.toISOString() };
+	}
 	const months = rule === "stale" ? thresholds.staleMonths : thresholds.draftMonths;
 	return { until: subtractMonths(now, -months).toISOString(), by, at: now.toISOString() };
 }

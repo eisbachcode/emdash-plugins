@@ -21,7 +21,7 @@ import type { PluginContext } from "emdash/plugin";
 import type { EntryDismissals } from "./dismissals.js";
 import { evaluateEntries, store } from "./findings.js";
 import { findingId, ID_BATCH } from "./ids.js";
-import { readSettings, thresholdsFor, type Settings } from "./settings.js";
+import { expiryFor, readSettings, thresholdsFor, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
 import { readState, writeState, type State, type Sweep } from "./state.js";
 
@@ -69,10 +69,22 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
  * its cleanup, which removes the rows of collections that were left out.
  */
 async function newSweep(ctx: PluginContext, settings: Settings, now: Date): Promise<Sweep> {
-	const collections = (await listCollections(ctx))
-		.map((collection) => collection.slug)
-		.filter((slug) => !thresholdsFor(settings, slug).skip);
-	return { startedAt: now.toISOString(), collections, index: 0, cursor: null, phase: "audit" };
+	const audited = (await listCollections(ctx)).filter((collection) => !thresholdsFor(settings, collection.slug).skip);
+	const dateFields: NonNullable<Sweep["dateFields"]> = {};
+	for (const collection of audited) {
+		const fields = collection.fields
+			.filter((field) => field.type === "datetime")
+			.map((field) => ({ slug: field.slug, label: field.label }));
+		if (fields.length > 0) dateFields[collection.slug] = fields;
+	}
+	return {
+		startedAt: now.toISOString(),
+		collections: audited.map((collection) => collection.slug),
+		index: 0,
+		cursor: null,
+		phase: "audit",
+		dateFields,
+	};
 }
 
 function abandoned(sweep: Sweep, now: Date): boolean {
@@ -145,7 +157,15 @@ async function auditPage(
 	const dismissals = ids.length > 0 ? await ctx.storage.dismissals.getMany(ids) : new Map();
 	await store(
 		ctx,
-		evaluateEntries(collection, page.items, thresholds, now, sweep.startedAt, dismissals as Map<string, EntryDismissals>),
+		evaluateEntries(
+			collection,
+			page.items,
+			thresholds,
+			now,
+			sweep.startedAt,
+			dismissals as Map<string, EntryDismissals>,
+			expiryFor(settings, collection, sweep.dateFields?.[collection] ?? []),
+		),
 	);
 
 	if (page.cursor) {
