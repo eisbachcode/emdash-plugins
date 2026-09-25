@@ -122,11 +122,13 @@ export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, 
 		}
 	}
 
+	// A threshold of 0 switches the rule off: a collection whose entries are
+	// not expected to change, such as testimonials.
 	if (updatedAt) {
-		if (published && updatedAt < subtractMonths(now, thresholds.staleMonths)) {
+		if (published && thresholds.staleMonths > 0 && updatedAt < subtractMonths(now, thresholds.staleMonths)) {
 			hits.push({ rule: "stale", severity: "medium", params: { since: day(updatedAt) } });
 		}
-		if (entry.status === "draft" && updatedAt < subtractMonths(now, thresholds.draftMonths)) {
+		if (entry.status === "draft" && thresholds.draftMonths > 0 && updatedAt < subtractMonths(now, thresholds.draftMonths)) {
 			hits.push({ rule: "stale-draft", severity: "low", params: { since: day(updatedAt) } });
 		}
 	}

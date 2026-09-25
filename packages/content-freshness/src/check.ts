@@ -16,7 +16,7 @@ import {
 import { evaluateEntries, forget, store, type EntryRef } from "./findings.js";
 import { findingId } from "./ids.js";
 import { evaluateEntry, type Hit, type Rule } from "./rules.js";
-import { readSettings } from "./settings.js";
+import { readSettings, thresholdsFor } from "./settings.js";
 
 export interface PanelAction {
 	kind: "set-aside" | "undo";
@@ -27,6 +27,8 @@ export interface PanelAction {
 export interface PanelView {
 	active: Hit[];
 	setAside: Array<{ hit: Hit; dismissal: Dismissal }>;
+	/** The entry's collection is left out of the audit. */
+	skipped?: boolean;
 }
 
 /**
@@ -40,9 +42,10 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 		ctx.content.get(ref.collection, ref.id),
 		readDismissals(ctx, ref.collection, ref.id),
 	]);
-	if (!entry) {
+	const thresholds = thresholdsFor(settings, ref.collection);
+	if (!entry || thresholds.skip) {
 		await forget(ctx, ref);
-		return { active: [], setAside: [] };
+		return { active: [], setAside: [], skipped: thresholds.skip };
 	}
 
 	const now = new Date();
@@ -52,7 +55,7 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 		if (action.kind === "undo") {
 			delete rules[action.rule];
 		} else {
-			const dismissal = dismissalFor(action.rule, settings, now, action.by);
+			const dismissal = dismissalFor(action.rule, thresholds, now, action.by);
 			if (dismissal) rules[action.rule] = dismissal;
 		}
 		dismissals = { ...dismissals, rules };
@@ -60,8 +63,8 @@ export async function checkEntry(ctx: PluginContext, ref: EntryRef, action?: Pan
 	}
 
 	const keyed = new Map([[findingId(ref.collection, ref.id), dismissals]]);
-	await store(ctx, evaluateEntries(ref.collection, [entry], settings, now, now.toISOString(), keyed));
-	const { active, setAside } = partition(evaluateEntry(entry, settings, now), dismissals, now);
+	await store(ctx, evaluateEntries(ref.collection, [entry], thresholds, now, now.toISOString(), keyed));
+	const { active, setAside } = partition(evaluateEntry(entry, thresholds, now), dismissals, now);
 	return { active, setAside: setAside.map((hit) => ({ hit, dismissal: dismissals.rules[hit.rule]! })) };
 }
 

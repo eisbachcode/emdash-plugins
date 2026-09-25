@@ -14,6 +14,7 @@ import type {
 	BlockResponse,
 	ButtonElement,
 	FormBlock,
+	FormField,
 	SelectElement,
 	StatsBlock,
 } from "@emdash-cms/blocks";
@@ -26,7 +27,7 @@ import { ID_BATCH } from "./ids.js";
 import { t, type Lang, type MessageKey } from "./i18n.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
 import { RANK } from "./rules.js";
-import type { Settings } from "./settings.js";
+import { collectionField, type Settings } from "./settings.js";
 import type { State } from "./state.js";
 
 export const VIEW_ACTION = "report_view";
@@ -295,7 +296,42 @@ export async function buildReportPage(
 	};
 }
 
-export function buildSettingsPage(settings: Settings, lang: Lang): BlockResponse {
+function collectionFields(settings: Settings, lang: Lang, collections: PluginCollectionInfo[]): FormField[] {
+	return collections.flatMap((item): FormField[] => {
+		const own = settings.collections[item.slug] ?? {};
+		const collection = item.label || item.slug;
+		return [
+			{
+				type: "number_input",
+				action_id: collectionField(item.slug, "staleMonths"),
+				label: t(lang, "collectionStale", { collection, months: settings.staleMonths }),
+				min: 0,
+				max: 120,
+				...(own.staleMonths !== undefined ? { initial_value: own.staleMonths } : {}),
+			},
+			{
+				type: "number_input",
+				action_id: collectionField(item.slug, "draftMonths"),
+				label: t(lang, "collectionDraft", { collection, months: settings.draftMonths }),
+				min: 0,
+				max: 120,
+				...(own.draftMonths !== undefined ? { initial_value: own.draftMonths } : {}),
+			},
+			{
+				type: "toggle",
+				action_id: collectionField(item.slug, "skip"),
+				label: t(lang, "collectionSkip", { collection }),
+				initial_value: own.skip === true,
+			},
+		];
+	});
+}
+
+export function buildSettingsPage(
+	settings: Settings,
+	lang: Lang,
+	collections: PluginCollectionInfo[] = [],
+): BlockResponse {
 	const form: FormBlock = {
 		type: "form",
 		fields: [
@@ -347,6 +383,7 @@ export function buildSettingsPage(settings: Settings, lang: Lang): BlockResponse
 				initial_value: settings.pageSize,
 			},
 			{ type: "text_input", action_id: "schedule", label: t(lang, "schedule"), initial_value: settings.schedule },
+			...collectionFields(settings, lang, collections),
 		],
 		submit: { label: t(lang, "save"), action_id: SAVE_SETTINGS_ACTION },
 	};

@@ -18,7 +18,7 @@ import type { PluginContext } from "emdash/plugin";
 import type { EntryDismissals } from "./dismissals.js";
 import { evaluateEntries, store } from "./findings.js";
 import { findingId, ID_BATCH } from "./ids.js";
-import { readSettings, type Settings } from "./settings.js";
+import { readSettings, thresholdsFor, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
 import { readState, writeState, type State, type Sweep } from "./state.js";
 
@@ -49,8 +49,7 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
 	if (!state.sweep || abandoned(state.sweep, now)) {
 		// A follow-up of a sweep that already finished has nothing to do.
 		if (!starts) return;
-		state.sweep = await newSweep(ctx, now);
-		if (!state.sweep) return;
+		state.sweep = await newSweep(ctx, settings, now);
 	}
 
 	const more = await step(ctx, settings, state, now);
@@ -60,9 +59,14 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
 	}
 }
 
-async function newSweep(ctx: PluginContext, now: Date): Promise<Sweep | null> {
-	const collections = (await listCollections(ctx)).map((collection) => collection.slug);
-	if (collections.length === 0) return null;
+/**
+ * A sweep over every collection not left out. With none left it still runs
+ * its cleanup, which removes the rows of collections that were left out.
+ */
+async function newSweep(ctx: PluginContext, settings: Settings, now: Date): Promise<Sweep> {
+	const collections = (await listCollections(ctx))
+		.map((collection) => collection.slug)
+		.filter((slug) => !thresholdsFor(settings, slug).skip);
 	return { startedAt: now.toISOString(), collections, index: 0, cursor: null, phase: "audit" };
 }
 
@@ -106,6 +110,13 @@ async function auditPage(
 ): Promise<void> {
 	const content = ctx.content;
 	if (!content) return;
+	const thresholds = thresholdsFor(settings, collection);
+	// Left out since the sweep started: its rows go with the cleanup.
+	if (thresholds.skip) {
+		sweep.index += 1;
+		sweep.cursor = null;
+		return;
+	}
 	let page;
 	try {
 		page = await content.list(collection, {
@@ -129,7 +140,7 @@ async function auditPage(
 	const dismissals = ids.length > 0 ? await ctx.storage.dismissals.getMany(ids) : new Map();
 	await store(
 		ctx,
-		evaluateEntries(collection, page.items, settings, now, sweep.startedAt, dismissals as Map<string, EntryDismissals>),
+		evaluateEntries(collection, page.items, thresholds, now, sweep.startedAt, dismissals as Map<string, EntryDismissals>),
 	);
 
 	if (page.cursor) {

@@ -26,6 +26,7 @@ export function ruleOf(value: unknown): Rule | null {
 }
 
 export function renderPanel(lang: Lang, view: PanelView): BlockResponse {
+	if (view.skipped) return { blocks: [{ type: "context", text: t(lang, "panelSkipped") }] };
 	if (view.active.length === 0 && view.setAside.length === 0) {
 		return { blocks: [{ type: "context", text: t(lang, "panelClear") }] };
 	}

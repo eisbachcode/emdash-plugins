@@ -33,6 +33,13 @@ describe("evaluateEntry", () => {
 		expect(rules(entry({ updatedAt: "2024-01-01T00:00:00.000Z" }))).toContain("stale");
 	});
 
+	it("does not call anything stale in a collection whose threshold is 0", () => {
+		const never = { ...DEFAULT_THRESHOLDS, staleMonths: 0, draftMonths: 0 };
+		const old = "2020-01-01T00:00:00.000Z";
+		expect(evaluateEntry(entry({ updatedAt: old }), never, NOW)).toEqual([]);
+		expect(evaluateEntry(entry({ status: "draft", updatedAt: old }), never, NOW)).toEqual([]);
+	});
+
 	it("flags a draft left for longer than the draft threshold", () => {
 		const found = rules(entry({ status: "draft", updatedAt: "2025-01-01T00:00:00.000Z" }));
 		expect(found).toContain("stale-draft");

@@ -11,7 +11,7 @@ import plugin from "../src/plugin.js";
  * handler has to answer to both.
  */
 
-/** Minimal context: settings and state come from KV, and the site has no collections, so no sweep starts. */
+/** Minimal context: settings and state come from KV, and a site without collections sweeps straight to its cleanup. */
 function fakeContext() {
 	const warns: string[] = [];
 	const reads: string[] = [];
@@ -21,9 +21,11 @@ function fakeContext() {
 				reads.push(key);
 				return null;
 			},
+			async set() {},
 		},
 		content: {},
 		schema: { listCollections: async () => [] },
+		storage: { findings: { query: async () => ({ items: [], hasMore: false }) } },
 		log: {
 			debug() {},
 			info() {},

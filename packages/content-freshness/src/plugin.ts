@@ -5,7 +5,7 @@
  * `plugins: []`) and sandboxed mode. Logic lives in the sibling modules.
  */
 
-import { hasRole, ROLE } from "@eisbachcode/emdash-plugin-shared";
+import { hasRole, listCollections, ROLE } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
 import { checkEntry, type PanelAction } from "./check.js";
@@ -132,7 +132,7 @@ const plugin = {
 				if (interaction.type === "page_load") {
 					const { settings, state } = await loadAdmin(ctx);
 					if (interaction.page === "widget:summary") return buildWidget(ctx, state, lang);
-					if (interaction.page === "/settings") return buildSettingsPage(settings, lang);
+					if (interaction.page === "/settings") return buildSettingsPage(settings, lang, await listCollections(ctx));
 					return buildReportPage(ctx, state, lang);
 				}
 
@@ -197,10 +197,10 @@ async function saveSettings(
 	values: Record<string, unknown>,
 	lang: Lang,
 ) {
-	const stored = await readStoredSettings(ctx);
+	const [stored, collections] = await Promise.all([readStoredSettings(ctx), listCollections(ctx)]);
 	if (!hasRole(user, ROLE.ADMIN)) {
 		return {
-			...buildSettingsPage(stored.settings, lang),
+			...buildSettingsPage(stored.settings, lang, collections),
 			toast: { message: t(lang, "adminOnly"), type: "error" as const },
 		};
 	}
@@ -211,12 +211,15 @@ async function saveSettings(
 		await ensureScheduled(ctx, next);
 	} catch (error) {
 		return {
-			...buildSettingsPage(stored.settings, lang),
+			...buildSettingsPage(stored.settings, lang, collections),
 			toast: { message: t(lang, "notSaved", { reason: errorMessage(error) }), type: "error" as const },
 		};
 	}
 	await writeStoredSettings(ctx, next);
-	return { ...buildSettingsPage(next.settings, lang), toast: { message: t(lang, "saved"), type: "success" as const } };
+	return {
+		...buildSettingsPage(next.settings, lang, collections),
+		toast: { message: t(lang, "saved"), type: "success" as const },
+	};
 }
 
 /**
