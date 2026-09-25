@@ -19,8 +19,9 @@ import {
 	PAGE_ACTION,
 	SAVE_SETTINGS_ACTION,
 } from "./report.js";
-import { applyForm, readSettings, SETTINGS_KEY } from "./settings.js";
-import { ensureScheduled, readState, writeState } from "./state.js";
+import { ensureScheduled } from "./schedule.js";
+import { applyForm, readStoredSettings, writeStoredSettings } from "./settings.js";
+import { readState } from "./state.js";
 import { AUDIT_NOW_TASK, runAudit } from "./sweep.js";
 
 interface AdminInteraction {
@@ -31,11 +32,23 @@ interface AdminInteraction {
 	values?: Record<string, unknown>;
 }
 
-/** Settings and state, with the recurring audit registered if it was not yet. */
+/**
+ * Settings and state, with the recurring audit registered if it was not yet.
+ * A failure to schedule is logged and the page still renders: the settings
+ * page is where a bad schedule gets fixed.
+ */
 async function loadAdmin(ctx: PluginContext) {
-	const [settings, state] = await Promise.all([readSettings(ctx), readState(ctx)]);
-	if (await ensureScheduled(ctx, settings, state)) await writeState(ctx, state);
-	return { settings, state };
+	const [stored, state] = await Promise.all([readStoredSettings(ctx), readState(ctx)]);
+	try {
+		if (await ensureScheduled(ctx, stored)) await writeStoredSettings(ctx, stored);
+	} catch (error) {
+		ctx.log.warn(`Could not schedule the audit: ${errorMessage(error)}`);
+	}
+	return { settings: stored.settings, state };
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function cursorOf(value: unknown): string | undefined {
@@ -64,7 +77,9 @@ const plugin = {
 	hooks: {
 		"plugin:activate": {
 			handler: async (_event, ctx) => {
-				await loadAdmin(ctx);
+				const stored = await readStoredSettings(ctx);
+				await ensureScheduled(ctx, stored, true);
+				await writeStoredSettings(ctx, stored);
 			},
 		},
 
@@ -157,7 +172,7 @@ const plugin = {
 				return {
 					lastSweepFinishedAt: state.lastFinishedAt,
 					sweepInProgress: state.sweep !== null,
-					counts,
+					entriesBySeverity: counts,
 				};
 			},
 		},
@@ -169,26 +184,26 @@ async function saveSettings(
 	user: Parameters<typeof hasRole>[0],
 	values: Record<string, unknown>,
 ) {
-	const [current, state] = await Promise.all([readSettings(ctx), readState(ctx)]);
+	const stored = await readStoredSettings(ctx);
 	if (!hasRole(user, ROLE.ADMIN)) {
 		return {
-			...buildSettingsPage(current),
+			...buildSettingsPage(stored.settings),
 			toast: { message: "Only an administrator can change these settings.", type: "error" as const },
 		};
 	}
 
-	const next = applyForm(current, values);
+	const next = { settings: applyForm(stored.settings, values), scheduledAs: stored.scheduledAs };
 	// Schedule first: an expression the scheduler rejects is never stored.
 	try {
-		await ensureScheduled(ctx, next, state);
-	} catch {
+		await ensureScheduled(ctx, next);
+	} catch (error) {
 		return {
-			...buildSettingsPage(current),
-			toast: { message: `"${next.schedule}" is not a cron expression the scheduler accepts.`, type: "error" as const },
+			...buildSettingsPage(stored.settings),
+			toast: { message: `Settings not saved. ${errorMessage(error)}`, type: "error" as const },
 		};
 	}
-	await Promise.all([ctx.kv.set(SETTINGS_KEY, next), writeState(ctx, state)]);
-	return { ...buildSettingsPage(next), toast: { message: "Settings saved.", type: "success" as const } };
+	await writeStoredSettings(ctx, next);
+	return { ...buildSettingsPage(next.settings), toast: { message: "Settings saved.", type: "success" as const } };
 }
 
 /**

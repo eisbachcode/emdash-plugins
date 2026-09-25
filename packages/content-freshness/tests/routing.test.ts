@@ -14,7 +14,7 @@ import type { State } from "../src/state.js";
 
 type Collection = { slug: string; label: string; routable: boolean; urlPattern: string | null };
 
-const STATE: State = { sweep: null, lastFinishedAt: null, scheduledAs: null };
+const STATE: State = { sweep: null, lastFinishedAt: null };
 
 function fakeContext(collections: Collection[]) {
 	return {

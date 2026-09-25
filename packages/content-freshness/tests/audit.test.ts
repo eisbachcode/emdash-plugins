@@ -1,6 +1,8 @@
 import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { STATE_KEY } from "../src/state.js";
+import { failNextCall } from "./bridge-calls.js";
 import { finding, newHost, runSweep, undescribed } from "./host.js";
 
 let host: PluginRuntimeTestHost | undefined;
@@ -65,6 +67,44 @@ describe("a sweep", () => {
 		await runSweep(host);
 
 		expect(await finding(host, "posts", entry.id)).toBeNull();
+	});
+});
+
+describe("a sweep that cannot list a collection", () => {
+	it("keeps that collection's findings when the collection still exists", async () => {
+		host = await newHost();
+		const entry = await undescribed(host, "posts", "kept-on-error");
+		await runSweep(host);
+
+		failNextCall("contentList");
+		host.scheduled.setTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+		await host.transport.invokeHook("cron", { name: "audit-now" }).catch(() => undefined);
+		while ((await host.scheduled.run()).processed > 0);
+
+		expect(await finding(host, "posts", entry.id)).not.toBeNull();
+	});
+
+	it("skips a collection deleted since the sweep started, and its rows go", async () => {
+		host = await newHost();
+		await host.fixtures.plugin.storage("findings", "gone:01GONE", {
+			collection: "gone",
+			entryId: "01GONE",
+			slug: "gone",
+			locale: "en",
+			rank: 1,
+			hits: [{ rule: "missing-description", severity: "medium", params: {} }],
+			entryUpdatedAt: "2026-01-01T00:00:00.000Z",
+			seenIn: "2026-01-01T00:00:00.000Z",
+		});
+		const sweep = { startedAt: new Date().toISOString(), collections: ["gone", "posts"], index: 0, cursor: null, phase: "audit" };
+		await host.fixtures.plugin.kv(STATE_KEY, { sweep, lastFinishedAt: null });
+
+		host.scheduled.setTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+		await host.transport.invokeHook("cron", { name: "audit-next-a", data: { step: 1 } });
+		while ((await host.scheduled.run()).processed > 0);
+
+		expect(await finding(host, "gone", "01GONE")).toBeNull();
+		expect(await host.inspect.kv.get(STATE_KEY)).toMatchObject({ sweep: null });
 	});
 });
 

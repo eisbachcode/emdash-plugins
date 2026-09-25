@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AUDIT_NOW_ACTION, SAVE_SETTINGS_ACTION } from "../src/report.js";
 import { SETTINGS_KEY } from "../src/settings.js";
+import { failNextCall } from "./bridge-calls.js";
 import { newHost, runSweep, undescribed } from "./host.js";
 
 /**
@@ -63,7 +64,30 @@ describe("the recurring audit", () => {
 		const response = await host.admin.submit("/settings", SAVE_SETTINGS_ACTION, { schedule: "every night at four" });
 
 		expect(response.toast?.type).toBe("error");
-		expect(await host.inspect.kv.get(SETTINGS_KEY)).toBeNull();
+		expect(response.toast?.message).toContain("every night at four");
+		expect(await host.inspect.kv.get(SETTINGS_KEY)).toMatchObject({ schedule: "0 4 * * *" });
+		expect(await auditTask(host)).toMatchObject({ schedule: "0 4 * * *" });
+	});
+
+	it("is registered again on activation even when the settings say it already runs", async () => {
+		// An uninstall that keeps the data deletes the plugin's cron tasks but
+		// not its KV, so on reinstall the record says "scheduled" and is wrong.
+		host = await newHost();
+		await host.fixtures.plugin.kv(SETTINGS_KEY, { scheduledAs: "0 4 * * *" });
+
+		await host.actions.plugin.activate();
+
+		expect(await auditTask(host)).toMatchObject({ schedule: "0 4 * * *" });
+	});
+
+	it("does not take the dashboard down when scheduling fails", async () => {
+		host = await newHost();
+		failNextCall("cronSchedule");
+
+		expect(valid(await host.admin.loadWidget("summary"))).toBe(true);
+		expect(await auditTask(host)).toBeUndefined();
+
+		await host.admin.loadWidget("summary");
 		expect(await auditTask(host)).toMatchObject({ schedule: "0 4 * * *" });
 	});
 

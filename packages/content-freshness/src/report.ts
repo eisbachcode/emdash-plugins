@@ -21,6 +21,7 @@ import type { PluginContext } from "emdash/plugin";
 
 import { describeHit } from "./describe.js";
 import type { EntryFindings } from "./findings.js";
+import { RANK } from "./rules.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
 import type { Settings } from "./settings.js";
 import type { State } from "./state.js";
@@ -35,26 +36,28 @@ const PAGE_ROWS = 50;
 
 const PRIORITY = ["Urgent", "Should fix", "Nice to fix"] as const;
 
+/** Entries by the severity of their most urgent finding. */
 export interface Counts {
-	/** Entries by their most urgent finding: index 0 urgent, 1 should fix, 2 nice to fix. */
-	byRank: [number, number, number];
+	high: number;
+	medium: number;
+	low: number;
 	total: number;
 }
 
 export async function countFindings(ctx: PluginContext): Promise<Counts> {
-	const byRank = (await Promise.all([0, 1, 2].map((rank) => ctx.storage.findings.count({ rank })))) as [
-		number,
-		number,
-		number,
-	];
-	return { byRank, total: byRank[0] + byRank[1] + byRank[2] };
+	const [high, medium, low] = await Promise.all(
+		[RANK.high, RANK.medium, RANK.low].map((rank) => ctx.storage.findings.count({ rank })),
+	);
+	return { high: high ?? 0, medium: medium ?? 0, low: low ?? 0, total: (high ?? 0) + (medium ?? 0) + (low ?? 0) };
 }
 
 function statsBlock(counts: Counts, withTotal: boolean): StatsBlock {
 	return {
 		type: "stats",
 		items: [
-			...PRIORITY.map((label, rank) => ({ label, value: counts.byRank[rank] ?? 0 })),
+			{ label: PRIORITY[RANK.high], value: counts.high },
+			{ label: PRIORITY[RANK.medium], value: counts.medium },
+			{ label: PRIORITY[RANK.low], value: counts.low },
 			...(withTotal ? [{ label: "Entries", value: counts.total }] : []),
 		],
 	};
@@ -109,16 +112,21 @@ export async function buildWidget(ctx: PluginContext, state: State): Promise<Blo
 }
 
 /**
- * A page of rows, most urgent first, and whether it is a later page. A
- * cursor storage rejects falls back to the first page.
+ * A page of rows, most urgent first, and whether it is a later page.
+ *
+ * Storage continues from the cursor row's current rank. When that row has
+ * gone since the previous page, because its entry was fixed or deleted,
+ * nothing follows it and the page comes back empty. That, and a cursor
+ * storage cannot decode, fall back to the first page.
  */
 async function findingsPage(ctx: PluginContext, cursor: string | undefined) {
 	const query = { orderBy: { rank: "asc" as const }, limit: PAGE_ROWS };
 	if (cursor) {
 		try {
-			return { page: await ctx.storage.findings.query({ ...query, cursor }), later: true };
+			const page = await ctx.storage.findings.query({ ...query, cursor });
+			if (page.items.length > 0) return { page, later: true };
 		} catch {
-			// A cursor from the client that storage cannot decode.
+			// Undecodable cursor.
 		}
 	}
 	return { page: await ctx.storage.findings.query(query), later: false };

@@ -7,7 +7,7 @@ import { buildReportPage, buildSettingsPage } from "../src/report.js";
 import { DEFAULT_SETTINGS } from "../src/settings.js";
 import type { State } from "../src/state.js";
 
-const STATE: State = { sweep: null, lastFinishedAt: "2026-09-24T04:10:00.000Z", scheduledAs: "0 4 * * *" };
+const STATE: State = { sweep: null, lastFinishedAt: "2026-09-24T04:10:00.000Z" };
 
 function row(slug: string, locale: string): EntryFindings {
 	return {

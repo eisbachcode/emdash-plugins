@@ -17,7 +17,8 @@ import type { PluginContext } from "emdash/plugin";
 
 import { evaluateEntries, store } from "./findings.js";
 import { readSettings, type Settings } from "./settings.js";
-import { AUDIT_TASK, readState, writeState, type State, type Sweep } from "./state.js";
+import { AUDIT_TASK } from "./schedule.js";
+import { readState, writeState, type State, type Sweep } from "./state.js";
 
 /** The one-shot the "Audit now" button schedules. See `plugin.ts` for why it has its own name. */
 export const AUDIT_NOW_TASK = "audit-now";
@@ -112,9 +113,13 @@ async function auditPage(
 			...(sweep.cursor ? { cursor: sweep.cursor } : {}),
 		});
 	} catch (error) {
-		// A collection deleted since the sweep started. Its rows fail the
-		// cleanup's `seenIn` check and go with the other leftovers.
-		ctx.log.warn(`Skipping collection ${collection}: ${String(error)}`);
+		// Only a collection deleted since the sweep started is skipped; its
+		// rows then fail the cleanup's `seenIn` check with the other
+		// leftovers. Any other failure propagates before the state is
+		// written, so no finding is removed for a collection that was never
+		// audited, and the next scheduled run retries this page.
+		if (await collectionExists(ctx, collection)) throw error;
+		ctx.log.warn(`Skipping collection ${collection}, which no longer exists`);
 		sweep.index += 1;
 		sweep.cursor = null;
 		return;
@@ -128,4 +133,9 @@ async function auditPage(
 		sweep.index += 1;
 		sweep.cursor = null;
 	}
+}
+
+async function collectionExists(ctx: PluginContext, slug: string): Promise<boolean> {
+	if (!ctx.schema) return true;
+	return (await ctx.schema.getCollection(slug)) !== null;
 }

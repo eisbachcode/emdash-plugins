@@ -57,3 +57,21 @@ it("opens with the most urgent entries however many findings there are", async (
 	expect(next?.rows.length).toBeGreaterThan(0);
 	expect(next?.rows.map((r) => r.entry)).not.toContain("zurgent");
 });
+
+it("falls back to the first page when the row the cursor points at is gone", async () => {
+	host = await createPluginRuntimeTestHost();
+	for (let i = 0; i < 60; i++) {
+		const id = `CUR${String(i).padStart(3, "0")}`;
+		await host.fixtures.plugin.storage("findings", `posts:${id}`, row(id, 1));
+	}
+	const first = await host.admin.loadPage("/report");
+	const table = first.blocks.find((block): block is TableBlock => block.type === "table");
+	const last = table?.rows.at(-1)?.entry as string;
+	// Its entry was fixed or deleted before "Load more".
+	await host.transport.invokeHook("content:afterDelete", { id: last.toUpperCase(), collection: "posts", permanent: true });
+
+	const next = await host.admin.act("/report", PAGE_ACTION, { value: { cursor: table?.next_cursor } });
+
+	const rows = next.blocks.find((block): block is TableBlock => block.type === "table")?.rows ?? [];
+	expect(rows.length).toBeGreaterThan(0);
+});

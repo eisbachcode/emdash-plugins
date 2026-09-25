@@ -4,6 +4,10 @@
  * cron run gets. A standard-format plugin has no declarative
  * `settingsSchema` — that is native-only — so the form is hand-built in
  * `report.ts`.
+ *
+ * The same object records which schedule the recurring audit was last
+ * registered with. Only admin requests write this key, so recording it here
+ * never races a cron run's write of the sweep state.
  */
 
 import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
@@ -35,8 +39,26 @@ const NUMBERS: Array<[NumberKey, number, number]> = [
 	["descriptionMax", 0, 300],
 ];
 
+export interface StoredSettings {
+	settings: Settings;
+	/** The expression the recurring audit was last scheduled with. */
+	scheduledAs: string | null;
+}
+
+export async function readStoredSettings(ctx: PluginContext): Promise<StoredSettings> {
+	const raw = await ctx.kv.get<Record<string, unknown>>(SETTINGS_KEY);
+	return {
+		settings: normalizeSettings(raw),
+		scheduledAs: typeof raw?.scheduledAs === "string" ? raw.scheduledAs : null,
+	};
+}
+
 export async function readSettings(ctx: PluginContext): Promise<Settings> {
-	return normalizeSettings(await ctx.kv.get<Record<string, unknown>>(SETTINGS_KEY));
+	return (await readStoredSettings(ctx)).settings;
+}
+
+export async function writeStoredSettings(ctx: PluginContext, stored: StoredSettings): Promise<void> {
+	await ctx.kv.set(SETTINGS_KEY, { ...stored.settings, scheduledAs: stored.scheduledAs });
 }
 
 /** Settings from whatever is stored, every value clamped and defaulted. */
