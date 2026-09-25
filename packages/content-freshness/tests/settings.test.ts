@@ -12,10 +12,10 @@ describe("normalizeSettings", () => {
 		expect([settings.descriptionMin, settings.descriptionMax]).toEqual([40, 200]);
 	});
 
-	it("caps the page size at what content.list returns", () => {
-		// content.list clamps its limit at 100; a larger setting would promise
-		// work a run never does.
-		expect(normalizeSettings({ pageSize: 200 }).pageSize).toBe(100);
+	it("caps the page size below D1's bind limit", () => {
+		// A page's ids go into one `IN (...)` next to two bound values of
+		// storage's own; D1 allows 100 per statement.
+		expect(normalizeSettings({ pageSize: 100 }).pageSize).toBe(98);
 	});
 });
 

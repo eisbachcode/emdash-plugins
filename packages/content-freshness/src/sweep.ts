@@ -15,7 +15,7 @@
 import { isFollowUp, listCollections, scheduleFollowUp, type ChainEvent, type SweepChain } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
-import { evaluateEntries, store } from "./findings.js";
+import { evaluateEntries, ID_BATCH, store } from "./findings.js";
 import { readSettings, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
 import { readState, writeState, type State, type Sweep } from "./state.js";
@@ -29,8 +29,6 @@ export const CHAIN: SweepChain = { next: ["audit-next-a", "audit-next-b"], maxSt
 /** A sweep that has not finished in this long is dropped and started over. */
 const ABANDON_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Most stale rows one cleanup run removes: storage queries return at most 100. */
-const CLEANUP_BATCH = 100;
 
 /**
  * Handle a cron event. A start while a sweep is under way continues that
@@ -86,7 +84,7 @@ async function step(ctx: PluginContext, settings: Settings, state: State, now: D
 
 	const stale = await ctx.storage.findings.query({
 		where: { seenIn: { lt: sweep.startedAt } },
-		limit: CLEANUP_BATCH,
+		limit: ID_BATCH,
 	});
 	if (stale.items.length > 0) await ctx.storage.findings.deleteMany(stale.items.map((item) => item.id));
 	if (stale.hasMore) return true;

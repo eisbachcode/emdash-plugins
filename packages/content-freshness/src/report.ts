@@ -21,7 +21,7 @@ import { listCollections, type PluginCollectionInfo } from "@eisbachcode/emdash-
 import type { PluginContext } from "emdash/plugin";
 
 import { describeHit } from "./describe.js";
-import type { EntryFindings } from "./findings.js";
+import { ID_BATCH, type EntryFindings } from "./findings.js";
 import { t, type Lang, type MessageKey } from "./i18n.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
 import { RANK } from "./rules.js";
@@ -342,7 +342,7 @@ export function buildSettingsPage(settings: Settings, lang: Lang): BlockResponse
 				action_id: "pageSize",
 				label: t(lang, "pageSize"),
 				min: 1,
-				max: 100,
+				max: ID_BATCH,
 				initial_value: settings.pageSize,
 			},
 			{ type: "text_input", action_id: "schedule", label: t(lang, "schedule"), initial_value: settings.schedule },

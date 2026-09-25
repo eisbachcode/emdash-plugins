@@ -72,7 +72,7 @@ entry. Without one, the audit is scheduled and never runs.
 | Draft forgotten after | 6 months | For drafts. |
 | SEO description | 50–160 characters | Outside this range is a low-priority finding. |
 | Report entries without an SEO description | on | Off for a site whose templates always render a description. The length check still runs. |
-| Entries per run | 50 | At most 100, the most one content query returns. The number of calls per run does not grow with it. |
+| Entries per run | 50 | At most 98: D1 binds at most 100 parameters per statement, and storage adds two of its own. The number of calls per run does not grow with it. |
 | Schedule | `0 4 * * *` | A cron expression, in UTC. One the scheduler rejects is not saved. |
 
 ## Develop

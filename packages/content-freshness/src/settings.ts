@@ -13,12 +13,13 @@
 import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
+import { ID_BATCH } from "./findings.js";
 import { DEFAULT_THRESHOLDS, type Thresholds } from "./rules.js";
 
 export const SETTINGS_KEY = "settings";
 
 export interface Settings extends Thresholds {
-	/** Entries per cron run. `content.list` returns at most 100. */
+	/** Entries per cron run, at most `ID_BATCH`. */
 	pageSize: number;
 	schedule: string;
 }
@@ -32,7 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
 type NumberKey = "pageSize" | "staleMonths" | "draftMonths" | "descriptionMin" | "descriptionMax";
 
 const NUMBERS: Array<[NumberKey, number, number]> = [
-	["pageSize", 1, 100],
+	["pageSize", 1, ID_BATCH],
 	["staleMonths", 1, 120],
 	["draftMonths", 1, 120],
 	["descriptionMin", 0, 300],
