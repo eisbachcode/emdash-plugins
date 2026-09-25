@@ -6,10 +6,10 @@ Most analytics plugins either inject a script or show site-wide numbers.
 This one keeps a `path → entry` index, so views can be attributed to the
 entry that earned them rather than to a URL string.
 
-> **Status: first release.** Cloudflare Web Analytics plus demo data: a
-> dashboard widget, an Analytics page with a setup check, a per-entry page
-> and an Analytics panel in the entry editor. Tested on EmDash 0.39 and 0.40.
-> See "Not in this version".
+> **Status: early releases.** Cloudflare Web Analytics plus demo data: a
+> dashboard widget, an Analytics page with a setup check, a per-entry page,
+> an Analytics panel in the entry editor and four read-only MCP tools.
+> Tested on EmDash 0.39 and 0.40. See "Not in this version".
 
 The screenshots show demo data on a site made from EmDash's blog template.
 
@@ -107,6 +107,40 @@ In the entry editor, the **Analytics** panel shows that entry's 7- and 30-day
 page views and the path they are counted at, and on a translated entry
 each language's numbers and their total. An entry that is not published
 at a public URL says so instead.
+
+## MCP tools
+
+EmDash's MCP server can hand the same numbers to an AI agent. The plugin
+declares four read-only tools:
+
+| Tool | Answers |
+|---|---|
+| `analytics__top_entries` | The most viewed published entries over 7 or 30 days, optionally for one collection |
+| `analytics__unviewed_entries` | Published entries without a single view in 7 or 30 days |
+| `analytics__entry_views` | One entry's 7- and 30-day views, found by id or by path, with its translations and their total |
+| `analytics__site_totals` | Site visits and page views over 7, 30 or 90 days, against the period before |
+
+They read what the sync stored and never call Cloudflare. Every answer
+names its window in UTC days, where stored history starts, whether the
+content index is complete and when the last sync ran, so an agent can say
+that the data is thin instead of presenting it as exact.
+
+To use them:
+
+1. Under **Plugins**, open Analytics and turn on **Agent access** after
+   reviewing the tools.
+2. Call them as a user with `plugins:read` (editor and above), through a
+   token with the `mcp:tools:analytics` scope, or `mcp:tools` for every
+   plugin's tools.
+
+After an update that changes a tool, EmDash stops serving the tools until
+they are approved again, but the switch stays on. Turn it off and on.
+
+**Sandboxed installs only, for now.** A plugin registered in `plugins: []`
+gets none of its MCP tools on EmDash 0.39 and 0.40: the plugin build keeps
+the tool declarations out of the runtime module, and EmDash's in-process
+loader looks for them only there. Under `sandboxed: []` or installed from
+the registry, the tools work. This is an EmDash limitation, not a setting.
 
 ## What you need
 
@@ -262,6 +296,9 @@ above**.
 The editor panel declares `content:edit_own`, and EmDash also checks that
 the user may edit that entry: **authors see their own entries' numbers,
 editors and admins every entry's**, contributors none.
+
+The MCP tools declare `plugins:read` like the pages, so an agent acting for
+an author gets a permission error from all of them.
 
 Authors and contributors will still see the widget card in the dashboard
 and get a permission error inside it — EmDash renders every declared widget

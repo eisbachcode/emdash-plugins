@@ -26,8 +26,8 @@
 import type { PluginContext } from "emdash/plugin";
 
 import { langOf, t, type Lang } from "../i18n.js";
-import { dailyStore, entriesStore, BIND_LIMIT, type Typed } from "../store/access.js";
-import type { EntryRow } from "../store/rows.js";
+import { dailyStore, entriesStore, oldestDay, BIND_LIMIT, type Typed } from "../store/access.js";
+import { isPublished, type EntryRow } from "../store/rows.js";
 import { indexOutdated, type SyncState } from "../sync/scheduler.js";
 import { addDays, daysBetween, utcDay, type Day } from "../sync/window.js";
 import { actions, button, context, empty, link, table, type AnalyticsBlock } from "./blocks.js";
@@ -151,11 +151,11 @@ export async function loadContent(
 		requested.collection && routable.some((c) => c.slug === requested.collection) ? requested.collection : null;
 	const view = { ...requested, collection };
 
-	const history = await dailyStore(ctx)?.query({ orderBy: { date: "asc" }, limit: 1 });
+	const historySince = await oldestDay(dailyStore(ctx));
 	const base = {
 		state,
 		collections: routable,
-		historySince: history?.items[0]?.data.date,
+		...(historySince && { historySince }),
 		indexing: indexingOf(state, routable.map((c) => c.slug)),
 		now,
 		locale,
@@ -382,9 +382,8 @@ function rowOf(row: EntryRow): ContentRow {
 	};
 }
 
-/** Rows kept for history after an unpublish or delete are not on the site. */
 function published(rows: EntryRow[]): EntryRow[] {
-	return rows.filter((row) => row.status === "published");
+	return rows.filter(isPublished);
 }
 
 /** Every published translation of the given groups, by group. */
