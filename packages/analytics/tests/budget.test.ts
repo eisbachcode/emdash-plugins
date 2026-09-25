@@ -5,6 +5,7 @@ import { GRAPHQL_ENDPOINT, RUM_DATASET } from "../src/providers/cloudflare.js";
 import { WAITING_KEY, type SyncState } from "../src/sync/scheduler.js";
 import { addDays } from "../src/sync/window.js";
 import { PAGE_REFRESH_ACTION, RANGE_ACTION, SETUP_ACTION } from "../src/ui/page.js";
+import { TOOL_ROUTES } from "../src/tools/load.js";
 import { bridgeCalls, failNextCall } from "./bridge-calls.js";
 import {
 	daysBack,
@@ -250,6 +251,92 @@ describe("admin requests", () => {
 		expect(calls.length, calls.join(", ")).toBeLessThanOrEqual(LIMIT);
 		expect(toast).toMatchObject({ type: "error" });
 		expect(calls.filter((c) => c === "storageQuery").length).toBeGreaterThanOrEqual(5);
+	});
+});
+
+describe("MCP tools", () => {
+	/**
+	 * Rows kept for history ahead of the published ones in both sort
+	 * orders, so a list tool reads every page it may and fills its page
+	 * part-way through the last one, which costs the exact re-read.
+	 */
+	async function withHistoryRows(runtime: PluginRuntimeTestHost, views: { kept: number; published: number }) {
+		const entry = (path: string, status: "moved" | "published", n: number) =>
+			runtime.fixtures.plugin.storage("entries", path, {
+				path,
+				collection: "posts",
+				entryId: `id${path}`,
+				translationGroup: `id${path}`,
+				locale: "en",
+				title: path,
+				status,
+				views7: n,
+				views30: n,
+				updatedAt: NOW.toISOString(),
+			});
+		for (const path of pathsOf(80, "/a-")) await entry(path, "moved", views.kept);
+		for (const path of pathsOf(20, "/p-")) await entry(path, "published", views.published);
+		await seedDaily(runtime, ["/p-00/"], daysBack(3));
+		await setState(runtime, synced);
+	}
+
+	it("top_entries, reading past a hundred rows kept for history", async () => {
+		host = await newHost();
+		await withHistoryRows(host, { kept: 100, published: 50 });
+		let result: { items: unknown[] } | undefined;
+		const calls = await bridgeCalls(async () => {
+			result = (await host!.transport.invokeRoute(TOOL_ROUTES.topEntries, { limit: 10 })) as { items: unknown[] };
+		});
+		expect(calls.length, calls.join(", ")).toBeLessThanOrEqual(LIMIT);
+		expect(calls.filter((c) => c === "storageQuery").length).toBe(6);
+		expect(result!.items).toHaveLength(10);
+	});
+
+	it("unviewed_entries, reading past a hundred rows kept for history", async () => {
+		host = await newHost();
+		await withHistoryRows(host, { kept: 0, published: 0 });
+		let result: { items: unknown[] } | undefined;
+		const calls = await bridgeCalls(async () => {
+			result = (await host!.transport.invokeRoute(TOOL_ROUTES.unviewedEntries, { limit: 10 })) as { items: unknown[] };
+		});
+		expect(calls.length, calls.join(", ")).toBeLessThanOrEqual(LIMIT);
+		expect(calls.filter((c) => c === "storageQuery").length).toBe(6);
+		expect(result!.items).toHaveLength(10);
+	});
+
+	it("entry_views by path, for an entry with translations", async () => {
+		host = await newHost();
+		for (const locale of ["de", "en", "fr"]) {
+			const path = `/${locale}/a/`;
+			await host.fixtures.plugin.storage("entries", path, {
+				path,
+				collection: "posts",
+				entryId: `a-${locale}`,
+				translationGroup: "a-de",
+				locale,
+				title: path,
+				status: "published",
+				views7: 1,
+				views30: 2,
+				updatedAt: NOW.toISOString(),
+			});
+		}
+		await setState(host, synced);
+		let result: unknown;
+		const calls = await bridgeCalls(async () => {
+			result = await host!.transport.invokeRoute(TOOL_ROUTES.entryViews, { path: "/en/a" });
+		});
+		expect(calls.length, calls.join(", ")).toBeLessThanOrEqual(LIMIT);
+		expect(result).toMatchObject({ found: true, allLanguages: { views30: 6 } });
+	});
+
+	it("site_totals over 90 days with a full comparison period", async () => {
+		host = await newHost();
+		await seedRollup(host, 180);
+		await setState(host, synced);
+		const calls = await bridgeCalls(() => host!.transport.invokeRoute(TOOL_ROUTES.siteTotals, { days: 90 }));
+		expect(calls.length, calls.join(", ")).toBeLessThanOrEqual(LIMIT);
+		expect(calls.filter((c) => c === "storageQuery").length).toBe(3);
 	});
 });
 

@@ -16,6 +16,7 @@
 
 import type { PluginContext } from "emdash/plugin";
 
+import type { Day } from "../sync/window.js";
 import type { DailyRow, EntryRow, RollupRow } from "./rows.js";
 
 export interface Page<T> {
@@ -111,4 +112,10 @@ export function rollupStore(ctx: PluginContext): Typed<RollupRow> | null {
 
 export function entriesStore(ctx: PluginContext): Typed<EntryRow> | null {
 	return wrap<EntryRow>(ctx.storage?.entries);
+}
+
+/** The oldest day a dated store holds, or null when it is empty or missing. */
+export async function oldestDay(store: Typed<{ date: Day }> | null): Promise<Day | null> {
+	const page = await store?.query({ orderBy: { date: "asc" }, limit: 1 });
+	return page?.items[0]?.data.date ?? null;
 }
