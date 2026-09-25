@@ -16,7 +16,16 @@
 	// break. The manifest has no advisory "tested up to" field to express
 	// caution without blocking, so the tested range belongs in the README.
 	"release": {
-		"requires": { "env:emdash": ">=0.39.0" }
+		"requires": { "env:emdash": ">=0.39.0" },
+		"artifacts": {
+			"screenshots": [
+				{ "file": "screenshots/analytics-page.png", "lang": "en" },
+				{ "file": "screenshots/per-entry.png", "lang": "en" },
+				{ "file": "screenshots/widget.png", "lang": "en" },
+				{ "file": "screenshots/editor-panel.png", "lang": "en" },
+				{ "file": "screenshots/setup-check.png", "lang": "en" }
+			]
+		}
 	},
 	// Registry search indexes slug and description and has no keywords
 	// field, so every provider this plugin supports has to be named here.

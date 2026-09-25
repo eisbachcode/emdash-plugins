@@ -129,7 +129,10 @@ describe("each failure, with the sentence that names its fix", () => {
 
 	it("a finished index that matched nothing although the URL is set", () => {
 		const facts = { ...healthy(), state: { ...healthy().state, indexed: 0 } };
-		expect(check(facts, "index")).toMatchObject({ status: "problem", detail: expect.stringMatching(/URL patterns/) });
+		expect(check(facts, "index")).toMatchObject({
+			status: "problem",
+			detail: expect.stringMatching(/URL Pattern \(under Content Types\), then press Rebuild index/),
+		});
 	});
 
 	it("a host without a scheduler", () => {
