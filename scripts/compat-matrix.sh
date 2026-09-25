@@ -82,7 +82,12 @@ run_suites() {
 			record "$label" "$p" "${n:-passed}"
 		else
 			echo "  $p failed against $label:"
-			printf '%s\n' "$out" | tail -25 | sed 's/^/    /'
+			# Every failing test with its first error lines, then the summary.
+			# A tail of the run shows only the last failure, and a flaky run
+			# rarely fails once.
+			plain=$(printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g')
+			printf '%s\n' "$plain" | grep -E -A4 '^ *(FAIL|×) |Error:' | head -80 | sed 's/^/    /' || true
+			printf '%s\n' "$plain" | tail -6 | sed 's/^/    /'
 			record "$label" "$p" "FAIL"
 			FAILED=1
 		fi
