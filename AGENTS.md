@@ -51,6 +51,13 @@ pnpm build
 Versions come from changesets: add one with `pnpm changeset` for every
 change to a published package, written for someone upgrading.
 
+A package that has not been released yet stays `"private": true`. The release
+workflow publishes every public package whose version is missing from npm,
+changeset or not, so a public package would go out with its first merge to
+`main`. The release PR removes the flag and adds the package's first
+changeset. That first publish is manual (`pnpm publish` in the package):
+npm's trusted-publisher setting can only be added to a package that exists.
+
 Never name a package script `publish`, `version` or `prepare`: npm and pnpm
 run scripts with those names on their own during a publish or a version
 bump. `emdash-plugin init` generates `"publish": "emdash-plugin publish"`,

@@ -1,6 +1,7 @@
 {
 	"name": "@eisbachcode/emdash-plugin-content-freshness",
 	"version": "0.1.0",
+	"private": true,
 	"description": "EmDash plugin: scheduled freshness audit for your content.",
 	"keywords": [
 		"emdash",
