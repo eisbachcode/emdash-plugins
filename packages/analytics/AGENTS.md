@@ -45,6 +45,21 @@ at the workspace root is enough.
   undefined there, so read `routeCtx.ui?.locale` and fall back to English;
   never return empty blocks when it is missing. The editor panel gets it in
   both modes, with `ui.entry`.
+- **MCP schemas never reach the runtime.** `emdash-plugin build` strips
+  the `mcp` property of `src/plugin.ts` from the bundle and writes the zod
+  schemas into the manifest as JSON Schema. `src/tools/declare.ts` is
+  referenced only from there, so zod stays a dev dependency and out of the
+  bundle; a schema imported by a route handler would pull it back in. The
+  handlers in `src/tools/load.ts` validate by hand, because the routes are
+  also reachable over HTTP without the MCP server's validation.
+- **An MCP output schema is strict.** Every object becomes
+  `additionalProperties: false` and the MCP server rejects an answer that
+  does not match, so a loader's result and its declared output have to
+  agree key for key. `tests/tools.test.ts` checks each answer against the
+  schema the build wrote.
+- **MCP tools reach sandboxed installs only.** EmDash's in-process loader
+  reads tools from the runtime module, where the build removed them, so a
+  `plugins: []` install lists none. Test tools sandboxed.
 - **Block Kit keeps no state.** Anything a page needs to remember between
   interactions travels in an `action_id`, a button `value` or a table
   cursor (see `src/ui/content.ts`).
