@@ -34,6 +34,9 @@
 		// report most urgent first; `seenIn` finds the rows a finished sweep
 		// did not confirm, which belong to entries that no longer exist.
 		"findings": { "indexes": ["collection", "rank", "seenIn", "authorId", ["collection", "rank"]] },
+		// Findings an editor set aside, one document per entry, keyed like its
+		// finding row. Read by id only.
+		"dismissals": { "indexes": [] },
 	},
 
 	"admin": {
@@ -42,5 +45,6 @@
 			{ "path": "/settings", "label": "Freshness settings", "icon": "settings" },
 		],
 		"widgets": [{ "id": "summary", "title": "Needs attention", "size": "third" }],
+		"editorPanels": [{ "id": "freshness", "title": "Freshness", "route": "panel" }],
 	},
 }

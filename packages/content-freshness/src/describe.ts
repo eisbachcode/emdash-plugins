@@ -4,7 +4,7 @@
  */
 
 import { t, type Lang } from "./i18n.js";
-import type { Hit } from "./rules.js";
+import type { Hit, Severity } from "./rules.js";
 
 function statusText(lang: Lang, status: string | number | undefined): string {
 	if (status === "draft") return t(lang, "statusDraft");
@@ -30,4 +30,10 @@ export function describeHit(lang: Lang, hit: Hit): string {
 		case "stale-draft":
 			return t(lang, "hitStaleDraft", params);
 	}
+}
+
+const SEVERITY_KEY = { high: "priorityHigh", medium: "priorityMedium", low: "priorityLow" } as const;
+
+export function severityText(lang: Lang, severity: Severity): string {
+	return t(lang, SEVERITY_KEY[severity]);
 }

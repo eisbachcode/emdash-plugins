@@ -15,7 +15,9 @@
 import { isFollowUp, listCollections, scheduleFollowUp, type ChainEvent, type SweepChain } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
-import { evaluateEntries, ID_BATCH, store } from "./findings.js";
+import type { EntryDismissals } from "./dismissals.js";
+import { evaluateEntries, store } from "./findings.js";
+import { findingId, ID_BATCH } from "./ids.js";
 import { readSettings, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
 import { readState, writeState, type State, type Sweep } from "./state.js";
@@ -123,7 +125,12 @@ async function auditPage(
 		return;
 	}
 
-	await store(ctx, evaluateEntries(collection, page.items, settings, now, sweep.startedAt));
+	const ids = page.items.map((entry) => findingId(collection, entry.id));
+	const dismissals = ids.length > 0 ? await ctx.storage.dismissals.getMany(ids) : new Map();
+	await store(
+		ctx,
+		evaluateEntries(collection, page.items, settings, now, sweep.startedAt, dismissals as Map<string, EntryDismissals>),
+	);
 
 	if (page.cursor) {
 		sweep.cursor = page.cursor;

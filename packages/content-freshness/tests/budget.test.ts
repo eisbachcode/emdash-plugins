@@ -132,6 +132,23 @@ describe("content hooks", () => {
 	});
 });
 
+describe("the Freshness panel", () => {
+	it("opening it, and setting a finding aside", async () => {
+		host = await newHost();
+		const runtime = host;
+		const entry = await undescribed(runtime, "posts", "panel-budget");
+
+		const load = await bridgeCalls(() => runtime.admin.loadEditorPanel("freshness", "posts", entry.id));
+		expect(load.length).toBeLessThanOrEqual(LIMIT);
+
+		const act = await bridgeCalls(() =>
+			runtime.admin.actEditorPanel("freshness", "posts", entry.id, "set_aside", { value: { rule: "missing-description" } }),
+		);
+		expect(act).toContain("storagePut");
+		expect(act.length).toBeLessThanOrEqual(LIMIT);
+	});
+});
+
 describe("admin requests", () => {
 	async function siteWithFindings() {
 		const runtime = await newHost();

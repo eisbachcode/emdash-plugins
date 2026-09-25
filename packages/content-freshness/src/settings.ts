@@ -13,7 +13,7 @@
 import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
-import { ID_BATCH } from "./findings.js";
+import { ID_BATCH } from "./ids.js";
 import { DEFAULT_THRESHOLDS, type Thresholds } from "./rules.js";
 
 export const SETTINGS_KEY = "settings";

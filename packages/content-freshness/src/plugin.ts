@@ -8,7 +8,9 @@
 import { hasRole, ROLE } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
-import { changedEntry, deletedEntry, forget, reevaluate } from "./hooks.js";
+import { checkEntry, type PanelAction } from "./check.js";
+import { forget } from "./findings.js";
+import { changedEntry, deletedEntry } from "./hooks.js";
 import { langOf, t, type Lang } from "./i18n.js";
 import {
 	AUDIT_NOW_ACTION,
@@ -20,6 +22,7 @@ import {
 	VIEW_ACTION,
 	viewFrom,
 } from "./report.js";
+import { renderPanel, ruleOf, SET_ASIDE_ACTION, UNDO_ACTION } from "./panel.js";
 import { ensureScheduled } from "./schedule.js";
 import { applyForm, readStoredSettings, writeStoredSettings } from "./settings.js";
 import { readState } from "./state.js";
@@ -58,7 +61,7 @@ async function refresh(ctx: PluginContext, event: unknown): Promise<void> {
 	const ref = changedEntry(event);
 	if (!ref) return;
 	try {
-		await reevaluate(ctx, ref);
+		await checkEntry(ctx, ref);
 	} catch (error) {
 		ctx.log.warn(`Could not re-check ${ref.collection}/${ref.id}: ${String(error)}`);
 	}
@@ -152,6 +155,26 @@ const plugin = {
 				}
 
 				return { blocks: [] };
+			},
+		},
+
+		// The entry editor's Freshness panel. Its own route because it needs a
+		// lower permission than the report: `content:edit_own` is author and
+		// above, and the host also checks that the user may edit this entry,
+		// so an author sets aside findings on their own entries only.
+		panel: {
+			permission: "content:edit_own",
+			handler: async (routeCtx, ctx) => {
+				const ui = routeCtx.ui;
+				if (ui?.surface !== "content-editor-panel") return { blocks: [] };
+				const input = routeCtx.input as { type?: string; action_id?: string; value?: unknown };
+				const rule = ruleOf(input.value);
+				const kind =
+					input.action_id === SET_ASIDE_ACTION ? "set-aside" : input.action_id === UNDO_ACTION ? "undo" : null;
+				const action: PanelAction | undefined =
+					input.type === "block_action" && rule && kind ? { kind, rule, by: routeCtx.user?.id ?? null } : undefined;
+				const view = await checkEntry(ctx, { collection: ui.entry.collection, id: ui.entry.id }, action);
+				return renderPanel(langOf(ui.locale), view);
 			},
 		},
 

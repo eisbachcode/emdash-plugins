@@ -21,7 +21,8 @@ import { listCollections, type PluginCollectionInfo } from "@eisbachcode/emdash-
 import type { PluginContext } from "emdash/plugin";
 
 import { describeHit } from "./describe.js";
-import { ID_BATCH, type EntryFindings } from "./findings.js";
+import type { EntryFindings } from "./findings.js";
+import { ID_BATCH } from "./ids.js";
 import { t, type Lang, type MessageKey } from "./i18n.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
 import { RANK } from "./rules.js";

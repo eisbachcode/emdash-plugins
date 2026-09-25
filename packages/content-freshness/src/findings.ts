@@ -10,18 +10,10 @@
 import type { PluginContentItem } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
+import { partition, type EntryDismissals } from "./dismissals.js";
+import { findingId } from "./ids.js";
 import { evaluateEntry, worstRank, type Hit, type Thresholds } from "./rules.js";
 
-/**
- * Most ids one storage call may carry.
- *
- * In-process, `getMany` and `deleteMany` build one `IN (...)` that also binds
- * the plugin id and the collection name, and D1 binds at most 100 parameters
- * per statement. The sandbox bridge does the same for `getMany`. Every call
- * that takes a page of ids therefore stays at 98, which is why a run audits
- * at most 98 entries and a cleanup run removes at most 98 rows.
- */
-export const ID_BATCH = 98;
 
 export interface EntryFindings {
 	collection: string;
@@ -38,9 +30,6 @@ export interface EntryFindings {
 	seenIn: string;
 }
 
-export function findingId(collection: string, entryId: string): string {
-	return `${collection}:${entryId}`;
-}
 
 export interface Evaluated {
 	writes: Array<{ id: string; data: EntryFindings }>;
@@ -48,17 +37,22 @@ export interface Evaluated {
 	clears: string[];
 }
 
+/**
+ * Rows for `entries`, leaving out findings an editor has set aside.
+ * `dismissals` is keyed like the rows.
+ */
 export function evaluateEntries(
 	collection: string,
 	entries: PluginContentItem[],
 	thresholds: Thresholds,
 	now: Date,
 	seenIn: string,
+	dismissals: Map<string, EntryDismissals> = new Map(),
 ): Evaluated {
 	const result: Evaluated = { writes: [], clears: [] };
 	for (const entry of entries) {
 		const id = findingId(collection, entry.id);
-		const hits = evaluateEntry(entry, thresholds, now);
+		const hits = partition(evaluateEntry(entry, thresholds, now), dismissals.get(id), now).active;
 		if (hits.length === 0) {
 			result.clears.push(id);
 			continue;
@@ -86,4 +80,14 @@ export function evaluateEntries(
 export async function store(ctx: PluginContext, evaluated: Evaluated): Promise<void> {
 	if (evaluated.writes.length > 0) await ctx.storage.findings.putMany(evaluated.writes);
 	if (evaluated.clears.length > 0) await ctx.storage.findings.deleteMany(evaluated.clears);
+}
+
+export interface EntryRef {
+	collection: string;
+	id: string;
+}
+
+/** Remove an entry's row: it was trashed or deleted. */
+export async function forget(ctx: PluginContext, ref: EntryRef): Promise<void> {
+	await ctx.storage.findings.delete(findingId(ref.collection, ref.id));
 }
