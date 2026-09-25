@@ -11,16 +11,23 @@ What it looks for:
 | Published without an SEO description | should fix; nice to fix when the entry has an excerpt-like field |
 | Published and untouched for longer than your threshold | should fix |
 | Changes saved to a published entry and not published for longer than your threshold | should fix |
-| Published although the date in its expiry field has passed | should fix |
+| Published although the date in its expiry field has passed (opt-in per collection) | should fix |
 | SEO description too short or too long | nice to fix |
 | Draft abandoned for longer than your threshold | nice to fix |
 
-An entry with changes saved recently is not reported as stale: someone is
-working on it, and if they stop, the unpublished changes are reported
-instead. The expiry field is the collection's first `datetime` field named
-like `valid_until`, `end_date`, `expires_at` or `deadline`; the settings can
-name another field or switch expiry off for a collection. A date without a
-time lasts until the end of that day.
+Unpublished changes are counted in collections that keep revisions, and not
+while the changes are scheduled to go live. An entry someone saved recently
+is not reported as stale: someone is working on it, and if they stop, the
+unpublished changes are reported instead.
+
+Expiry is opt-in per collection, because a site that keeps past events online
+as an archive would otherwise get a finding for each of them. When a
+collection has a `datetime` field named like `valid_until`, `end_date`,
+`expires_at`, `valid_through` or `deadline`, the report suggests it; choose
+it, another field, or "Never expires" in the settings. EmDash stores a date
+without a time as midnight in the site's timezone, and the finding names that
+instant in UTC. An ignored expiry comes back when the date is moved and
+passes again.
 
 Many sites render a description of their own when the SEO panel is empty,
 usually from an excerpt or intro field. An entry with a non-empty `excerpt`,
