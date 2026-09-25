@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { describeHit } from "../src/describe.js";
 import { DEFAULT_THRESHOLDS, evaluateEntry, parseDate, subtractMonths } from "../src/rules.js";
 import type { PluginContentItem } from "@eisbachcode/emdash-plugin-shared";
 
@@ -33,6 +34,13 @@ describe("evaluateEntry", () => {
 		expect(rules(entry({ updatedAt: "2024-01-01T00:00:00.000Z" }))).toContain("stale");
 	});
 
+	it("does not call anything stale in a collection whose threshold is 0", () => {
+		const never = { ...DEFAULT_THRESHOLDS, staleMonths: 0, draftMonths: 0 };
+		const old = "2020-01-01T00:00:00.000Z";
+		expect(evaluateEntry(entry({ updatedAt: old }), never, NOW)).toEqual([]);
+		expect(evaluateEntry(entry({ status: "draft", updatedAt: old }), never, NOW)).toEqual([]);
+	});
+
 	it("flags a draft left for longer than the draft threshold", () => {
 		const found = rules(entry({ status: "draft", updatedAt: "2025-01-01T00:00:00.000Z" }));
 		expect(found).toContain("stale-draft");
@@ -47,6 +55,13 @@ describe("evaluateEntry", () => {
 		);
 		const overdue = hits.find((hit) => hit.rule === "overdue-schedule");
 		expect(overdue).toMatchObject({ severity: "high", params: { date: "2026-08-01", kind: "publish" } });
+	});
+
+	it("says that a scheduled entry never went live, whatever its status", () => {
+		for (const status of ["draft", "scheduled"]) {
+			const [hit] = evaluateEntry(entry({ status, scheduledAt: "2026-08-01T00:00:00.000Z" }), DEFAULT_THRESHOLDS, NOW);
+			expect(describeHit("en", hit!)).toBe("Scheduled to go live on 2026-08-01, but it never did.");
+		}
 	});
 
 	it("flags scheduled changes to a published entry that never went live", () => {

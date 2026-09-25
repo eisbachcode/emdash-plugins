@@ -21,7 +21,7 @@ describe("plugin surface", () => {
 		]);
 	});
 
-	it("registers the admin and status routes", () => {
-		expect(Object.keys(plugin.routes ?? {}).sort()).toEqual(["admin", "status"]);
+	it("registers the admin, panel and status routes", () => {
+		expect(Object.keys(plugin.routes ?? {}).sort()).toEqual(["admin", "panel", "status"]);
 	});
 });

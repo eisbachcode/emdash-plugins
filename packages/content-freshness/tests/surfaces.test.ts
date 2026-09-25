@@ -3,9 +3,10 @@ import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AUDIT_NOW_ACTION, SAVE_SETTINGS_ACTION } from "../src/report.js";
+import { PANEL_ID } from "../src/panel.js";
 import { SETTINGS_KEY } from "../src/settings.js";
 import { failNextCall } from "./bridge-calls.js";
-import { newHost, runSweep, undescribed } from "./host.js";
+import { finding, newHost, runSweep, undescribed } from "./host.js";
 
 /**
  * The host rejects a sandboxed response whose blocks do not validate with a
@@ -106,9 +107,52 @@ describe("the report's paging", () => {
 		await undescribed(host, "posts", "no-description");
 		await runSweep(host);
 
-		const response = await host.admin.act("/report", "findings_page", { value: { cursor: "not-a-cursor" } });
+		const response = await host.admin.act("/report", "report_view", { value: { cursor: "not-a-cursor" } });
 
 		expect(valid(response)).toBe(true);
 		expect(JSON.stringify(response.blocks)).toContain("no-description");
+	});
+});
+
+describe("a collection left out of the audit", () => {
+	it("loses its findings with the next sweep, and its entries' panel says why", async () => {
+		host = await newHost();
+		const entry = await undescribed(host, "posts", "left-out");
+		await runSweep(host);
+		expect(await finding(host, "posts", entry.id)).not.toBeNull();
+
+		const saved = await host.admin.submit("/settings", SAVE_SETTINGS_ACTION, { "collection:posts:skip": true });
+		expect(saved.toast?.type).toBe("success");
+		await runSweep(host);
+
+		expect(await finding(host, "posts", entry.id)).toBeNull();
+		const panel = await host.admin.loadEditorPanel(PANEL_ID, "posts", entry.id);
+		expect(JSON.stringify(panel.blocks)).toContain("left out of the freshness audit");
+	});
+
+	it("shows the collection's own settings in the form", async () => {
+		host = await newHost();
+		await host.admin.submit("/settings", SAVE_SETTINGS_ACTION, { "collection:posts:staleMonths": 0 });
+
+		const page = await host.admin.loadPage("/settings");
+
+		expect(valid(page)).toBe(true);
+		const form = page.blocks.find((block) => block.type === "form") as { fields: Array<{ action_id: string; initial_value?: unknown }> };
+		expect(form.fields.find((field) => field.action_id === "collection:posts:staleMonths")?.initial_value).toBe(0);
+	});
+});
+
+describe("the dashboard widget", () => {
+	it("tells an editor how many of the entries that need attention are theirs", async () => {
+		host = await newHost();
+		const editor = await host.fixtures.user({ email: "editor@example.test", role: "editor" });
+		await host.fixtures.content("posts", { slug: "editors", data: {}, status: "published", authorId: editor.id });
+		await undescribed(host, "posts", "someone-elses");
+		await runSweep(host);
+
+		const widget = await host.admin.loadWidget("summary", { user: editor });
+
+		expect(valid(widget)).toBe(true);
+		expect(JSON.stringify(widget.blocks)).toContain("1 of them is yours");
 	});
 });

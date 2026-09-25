@@ -12,29 +12,72 @@ import type {
 	BannerBlock,
 	Block,
 	BlockResponse,
+	ButtonElement,
 	FormBlock,
+	FormField,
+	SelectElement,
 	StatsBlock,
-	TableBlock,
 } from "@emdash-cms/blocks";
-import { listCollections } from "@eisbachcode/emdash-plugin-shared";
+import { listCollections, type PluginCollectionInfo } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
 import { describeHit } from "./describe.js";
 import type { EntryFindings } from "./findings.js";
-import { RANK } from "./rules.js";
+import { ID_BATCH } from "./ids.js";
+import { t, type Lang, type MessageKey } from "./i18n.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
-import type { Settings } from "./settings.js";
+import { RANK } from "./rules.js";
+import { collectionField, type Settings } from "./settings.js";
 import type { State } from "./state.js";
 
-export const PAGE_ACTION = "findings_page";
-export const FIRST_PAGE_ACTION = "findings_first_page";
+export const VIEW_ACTION = "report_view";
 export const AUDIT_NOW_ACTION = "audit_now";
 export const SAVE_SETTINGS_ACTION = "save_settings";
 
-/** Rows per report page. Storage queries return at most 100. */
-const PAGE_ROWS = 50;
+/** Entries per report page. Three blocks each keeps a page well inside Block Kit's limits. */
+const PAGE_ENTRIES = 25;
 
-const PRIORITY = ["Urgent", "Should fix", "Nice to fix"] as const;
+const PRIORITY: Record<number, MessageKey> = {
+	[RANK.high]: "priorityHigh",
+	[RANK.medium]: "priorityMedium",
+	[RANK.low]: "priorityLow",
+};
+
+/**
+ * What the report shows. A block action carries only its own value, so every
+ * control that changes the view carries the whole view: a filter keeps the
+ * other filter, and paging keeps both.
+ */
+export interface ReportView {
+	collection: string | null;
+	rank: number | null;
+	cursor: string | null;
+}
+
+export const FIRST_VIEW: ReportView = { collection: null, rank: null, cursor: null };
+
+/** The view a control sent: a JSON string from a select, an object from a button. */
+export function viewFrom(value: unknown): ReportView {
+	let source: unknown = value;
+	if (typeof value === "string") {
+		try {
+			source = JSON.parse(value);
+		} catch {
+			return FIRST_VIEW;
+		}
+	}
+	if (typeof source !== "object" || source === null) return FIRST_VIEW;
+	const { collection, rank, cursor } = source as Record<string, unknown>;
+	return {
+		collection: typeof collection === "string" && collection ? collection : null,
+		rank: typeof rank === "number" && Object.hasOwn(PRIORITY, rank) ? rank : null,
+		cursor: typeof cursor === "string" && cursor ? cursor : null,
+	};
+}
+
+function viewValue(view: ReportView): string {
+	return JSON.stringify({ collection: view.collection, rank: view.rank, cursor: view.cursor });
+}
 
 /** Entries by the severity of their most urgent finding. */
 export interface Counts {
@@ -51,45 +94,48 @@ export async function countFindings(ctx: PluginContext): Promise<Counts> {
 	return { high: high ?? 0, medium: medium ?? 0, low: low ?? 0, total: (high ?? 0) + (medium ?? 0) + (low ?? 0) };
 }
 
-function statsBlock(counts: Counts, withTotal: boolean): StatsBlock {
+function statsBlock(lang: Lang, counts: Counts, withTotal: boolean): StatsBlock {
 	return {
 		type: "stats",
 		items: [
-			{ label: PRIORITY[RANK.high], value: counts.high },
-			{ label: PRIORITY[RANK.medium], value: counts.medium },
-			{ label: PRIORITY[RANK.low], value: counts.low },
-			...(withTotal ? [{ label: "Entries", value: counts.total }] : []),
+			{ label: t(lang, "priorityHigh"), value: counts.high },
+			{ label: t(lang, "priorityMedium"), value: counts.medium },
+			{ label: t(lang, "priorityLow"), value: counts.low },
+			...(withTotal ? [{ label: t(lang, "statEntries"), value: counts.total }] : []),
 		],
 	};
 }
 
-function auditStatus(state: State): string {
-	if (state.sweep) return `Audit in progress since ${state.sweep.startedAt.slice(0, 10)}`;
-	if (state.lastFinishedAt) return `Last audit ${state.lastFinishedAt.slice(0, 10)}`;
-	return "First audit pending";
+function auditStatus(lang: Lang, state: State): string {
+	if (state.sweep) return t(lang, "auditRunning", { date: state.sweep.startedAt.slice(0, 10) });
+	if (state.lastFinishedAt) return t(lang, "auditLast", { date: state.lastFinishedAt.slice(0, 10) });
+	return t(lang, "auditPending");
 }
 
 /** A warning about collections whose public URLs EmDash gets wrong, or nothing. */
-async function urlPatternBanner(ctx: PluginContext, detail: boolean): Promise<BannerBlock[]> {
-	const missing = collectionsWithoutUrlPattern(await listCollections(ctx));
+function urlPatternBanner(lang: Lang, collections: PluginCollectionInfo[], detail: boolean): BannerBlock[] {
+	const missing = collectionsWithoutUrlPattern(collections);
 	if (missing.length === 0) return [];
 	const names = missing.map((collection) => collection.label || collection.slug).join(", ");
-	const explanation =
-		"EmDash links their entries as /{collection}/{slug} in the sitemap and the admin, which is wrong " +
-		"unless the site uses exactly those routes. Set a URL pattern under Content Types, or switch off " +
-		"routing for a collection that has no pages of its own.";
 	return [
 		{
 			type: "banner",
 			variant: "alert",
-			title: `No URL pattern: ${names}`,
-			description: detail ? explanation : "Sitemap links for these collections may be broken.",
+			title: t(lang, "urlPatternTitle", { names }),
+			description: t(lang, detail ? "urlPatternDetail" : "urlPatternShort"),
 		},
 	];
 }
 
-export async function buildWidget(ctx: PluginContext, state: State): Promise<BlockResponse> {
-	const [counts, banner] = await Promise.all([countFindings(ctx), urlPatternBanner(ctx, false)]);
+/** The dashboard card. With `userId`, it also says how many of the entries are that user's. */
+export async function buildWidget(
+	ctx: PluginContext,
+	state: State,
+	lang: Lang,
+	userId?: string,
+): Promise<BlockResponse> {
+	const [counts, collections] = await Promise.all([countFindings(ctx), listCollections(ctx)]);
+	const banner = urlPatternBanner(lang, collections, false);
 
 	if (counts.total === 0) {
 		if (banner.length > 0) return { blocks: banner };
@@ -97,33 +143,49 @@ export async function buildWidget(ctx: PluginContext, state: State): Promise<Blo
 			blocks: [
 				{
 					type: "empty",
-					title: state.lastFinishedAt ? "Everything current" : "First audit pending",
+					title: t(lang, state.lastFinishedAt ? "widgetClear" : "auditPending"),
 					description: state.lastFinishedAt
-						? `Last audit ${state.lastFinishedAt.slice(0, 10)}.`
-						: "Runs on the next scheduled audit.",
+						? t(lang, "widgetLastAudit", { date: state.lastFinishedAt.slice(0, 10) })
+						: t(lang, "widgetPending"),
 				},
 			],
 		};
 	}
 
+	const yours = userId ? await ctx.storage.findings.count({ authorId: userId }) : 0;
 	return {
-		blocks: [...banner, statsBlock(counts, false), { type: "context", text: auditStatus(state) }],
+		blocks: [
+			...banner,
+			statsBlock(lang, counts, false),
+			...(yours > 0 ? [{ type: "context" as const, text: t(lang, "widgetYours", { count: yours }) }] : []),
+			{ type: "context", text: auditStatus(lang, state) },
+			{
+				type: "actions",
+				elements: [
+					{ type: "link", label: t(lang, "openReport"), target: { kind: "plugin-page", path: "/report" } },
+				],
+			},
+		],
 	};
 }
 
 /**
- * A page of rows, most urgent first, and whether it is a later page.
+ * A page of rows for `view`, most urgent first, and whether it is a later
+ * page.
  *
  * Storage continues from the cursor row's current rank. When that row has
  * gone since the previous page, because its entry was fixed or deleted,
  * nothing follows it and the page comes back empty. That, and a cursor
- * storage cannot decode, fall back to the first page.
+ * storage cannot decode, fall back to the first page of the same filter.
  */
-async function findingsPage(ctx: PluginContext, cursor: string | undefined) {
-	const query = { orderBy: { rank: "asc" as const }, limit: PAGE_ROWS };
-	if (cursor) {
+async function findingsPage(ctx: PluginContext, view: ReportView) {
+	const where: Record<string, string | number> = {};
+	if (view.collection) where.collection = view.collection;
+	if (view.rank !== null) where.rank = view.rank;
+	const query = { where, orderBy: { rank: "asc" as const }, limit: PAGE_ENTRIES };
+	if (view.cursor) {
 		try {
-			const page = await ctx.storage.findings.query({ ...query, cursor });
+			const page = await ctx.storage.findings.query({ ...query, cursor: view.cursor });
 			if (page.items.length > 0) return { page, later: true };
 		} catch {
 			// Undecodable cursor.
@@ -132,83 +194,165 @@ async function findingsPage(ctx: PluginContext, cursor: string | undefined) {
 	return { page: await ctx.storage.findings.query(query), later: false };
 }
 
+function filters(lang: Lang, view: ReportView, collections: PluginCollectionInfo[]): ActionsBlock {
+	const collection: SelectElement = {
+		type: "select",
+		action_id: VIEW_ACTION,
+		label: t(lang, "filterCollection"),
+		initial_value: viewValue({ ...view, cursor: null }),
+		options: [
+			{ label: t(lang, "filterAll"), value: viewValue({ ...view, collection: null, cursor: null }) },
+			...collections.map((item) => ({
+				label: item.label || item.slug,
+				value: viewValue({ ...view, collection: item.slug, cursor: null }),
+			})),
+		],
+	};
+	const priority: SelectElement = {
+		type: "select",
+		action_id: VIEW_ACTION,
+		label: t(lang, "filterPriority"),
+		initial_value: viewValue({ ...view, cursor: null }),
+		options: [
+			{ label: t(lang, "filterAll"), value: viewValue({ ...view, rank: null, cursor: null }) },
+			...[RANK.high, RANK.medium, RANK.low].map((rank) => ({
+				label: t(lang, PRIORITY[rank]!),
+				value: viewValue({ ...view, rank, cursor: null }),
+			})),
+		],
+	};
+	return { type: "actions", elements: [collection, priority] };
+}
+
+function entryBlocks(lang: Lang, row: EntryFindings, collectionLabel: string, withLocale: boolean): Block[] {
+	const name = row.title ?? row.slug ?? row.entryId;
+	const where = [name, collectionLabel, ...(withLocale && row.locale ? [row.locale] : [])].join(" · ");
+	const findings = row.hits.map((hit) => describeHit(lang, hit)).join(" ");
+	return [
+		{
+			type: "section",
+			text: where,
+			accessory: {
+				type: "link",
+				label: t(lang, "open"),
+				target: {
+					kind: "content",
+					collection: row.collection,
+					id: row.entryId,
+					...(row.locale ? { locale: row.locale } : {}),
+				},
+			},
+		},
+		{ type: "context", text: `${t(lang, PRIORITY[row.rank] ?? "priorityLow")}: ${findings}` },
+		{ type: "divider" },
+	];
+}
+
 export async function buildReportPage(
 	ctx: PluginContext,
 	state: State,
-	cursor?: string,
+	lang: Lang,
+	view: ReportView = FIRST_VIEW,
 ): Promise<BlockResponse> {
-	const [banner, counts, { page, later }] = await Promise.all([
-		urlPatternBanner(ctx, true),
+	const [collections, counts, requested] = await Promise.all([
+		listCollections(ctx),
 		countFindings(ctx),
-		findingsPage(ctx, cursor),
+		findingsPage(ctx, view),
 	]);
-	const auditNow: ActionsBlock = {
-		type: "actions",
-		elements: [
-			{ type: "button", action_id: AUDIT_NOW_ACTION, label: "Audit now" },
-			...(later ? [{ type: "button" as const, action_id: FIRST_PAGE_ACTION, label: "First page" }] : []),
-		],
+	// A filter can name a collection deleted since the page was shown. The
+	// select would then have no option for it, and the host rejects the whole
+	// response, so the report falls back to all collections.
+	const known = view.collection === null || collections.some((item) => item.slug === view.collection);
+	if (!known) view = { ...view, collection: null, cursor: null };
+	const { page, later } = known ? requested : await findingsPage(ctx, view);
+	const banner = urlPatternBanner(lang, collections, true);
+	const auditNow: ButtonElement = {
+		type: "button",
+		action_id: AUDIT_NOW_ACTION,
+		label: t(lang, "auditNow"),
+		value: viewValue(view),
 	};
 
 	if (counts.total === 0) {
 		return {
 			blocks: [
-				{ type: "header", text: "Content freshness" },
+				{ type: "header", text: t(lang, "reportTitle") },
 				...banner,
-				{
-					type: "empty",
-					title: "Nothing needs attention",
-					description: "No stale entries, no missing descriptions, no overdue schedules.",
-				},
-				{ type: "context", text: auditStatus(state) },
-				auditNow,
+				{ type: "empty", title: t(lang, "nothingTitle"), description: t(lang, "nothingText") },
+				{ type: "context", text: auditStatus(lang, state) },
+				{ type: "actions", elements: [auditNow] },
 			],
 		};
 	}
 
+	const labels = new Map(collections.map((item) => [item.slug, item.label || item.slug]));
 	const rows = page.items.map(({ data }) => data as EntryFindings);
-	const multilingual = new Set(rows.map((row) => row.locale ?? null)).size > 1;
-	const table: TableBlock = {
-		type: "table",
-		page_action_id: PAGE_ACTION,
-		columns: [
-			{ key: "priority", label: "Priority", format: "badge" },
-			{ key: "entry", label: "Entry" },
-			...(multilingual ? [{ key: "locale", label: "Language" }] : []),
-			{ key: "collection", label: "Collection" },
-			{ key: "findings", label: "Findings" },
-			{ key: "updated", label: "Last touched" },
-		],
-		rows: rows.map((row) => ({
-			priority: PRIORITY[row.rank] ?? "",
-			entry: row.slug ?? row.entryId,
-			locale: row.locale ?? "",
-			collection: row.collection,
-			findings: row.hits.map(describeHit).join(" "),
-			updated: row.entryUpdatedAt.slice(0, 10),
-		})),
-		...(page.hasMore && page.cursor ? { next_cursor: page.cursor } : {}),
-	};
-
-	const blocks: Block[] = [
-		{ type: "header", text: "Content freshness" },
-		...banner,
-		statsBlock(counts, true),
-		{ type: "context", text: auditStatus(state) },
-		table,
-		auditNow,
+	const withLocale = new Set(rows.map((row) => row.locale ?? null)).size > 1;
+	const paging: ButtonElement[] = [
+		...(later ? [{ type: "button" as const, action_id: VIEW_ACTION, label: t(lang, "firstPage"), value: { ...view, cursor: null } }] : []),
+		...(page.hasMore && page.cursor
+			? [{ type: "button" as const, action_id: VIEW_ACTION, label: t(lang, "nextPage"), value: { ...view, cursor: page.cursor } }]
+			: []),
 	];
-	return { blocks };
+
+	return {
+		blocks: [
+			{ type: "header", text: t(lang, "reportTitle") },
+			...banner,
+			statsBlock(lang, counts, true),
+			{ type: "context", text: auditStatus(lang, state) },
+			filters(lang, view, collections),
+			...(rows.length === 0
+				? [{ type: "context" as const, text: t(lang, "noMatch") }]
+				: rows.flatMap((row) => entryBlocks(lang, row, labels.get(row.collection) ?? row.collection, withLocale))),
+			{ type: "actions", elements: [...paging, auditNow] },
+		],
+	};
 }
 
-export function buildSettingsPage(settings: Settings): BlockResponse {
+function collectionFields(settings: Settings, lang: Lang, collections: PluginCollectionInfo[]): FormField[] {
+	return collections.flatMap((item): FormField[] => {
+		const own = settings.collections[item.slug] ?? {};
+		const collection = item.label || item.slug;
+		return [
+			{
+				type: "number_input",
+				action_id: collectionField(item.slug, "staleMonths"),
+				label: t(lang, "collectionStale", { collection, months: settings.staleMonths }),
+				min: 0,
+				max: 120,
+				...(own.staleMonths !== undefined ? { initial_value: own.staleMonths } : {}),
+			},
+			{
+				type: "number_input",
+				action_id: collectionField(item.slug, "draftMonths"),
+				label: t(lang, "collectionDraft", { collection, months: settings.draftMonths }),
+				min: 0,
+				max: 120,
+				...(own.draftMonths !== undefined ? { initial_value: own.draftMonths } : {}),
+			},
+			{
+				type: "toggle",
+				action_id: collectionField(item.slug, "skip"),
+				label: t(lang, "collectionSkip", { collection }),
+				initial_value: own.skip === true,
+			},
+		];
+	});
+}
+
+export function buildSettingsPage(
+	settings: Settings,
+	lang: Lang,
+	collections: PluginCollectionInfo[] = [],
+): BlockResponse {
 	const form: FormBlock = {
 		type: "form",
 		fields: [
 			{
 				type: "number_input",
 				action_id: "staleMonths",
-				label: "Months before a published entry counts as stale",
+				label: t(lang, "staleMonths"),
 				min: 1,
 				max: 120,
 				initial_value: settings.staleMonths,
@@ -216,7 +360,7 @@ export function buildSettingsPage(settings: Settings): BlockResponse {
 			{
 				type: "number_input",
 				action_id: "draftMonths",
-				label: "Months before a draft counts as forgotten",
+				label: t(lang, "draftMonths"),
 				min: 1,
 				max: 120,
 				initial_value: settings.draftMonths,
@@ -224,7 +368,7 @@ export function buildSettingsPage(settings: Settings): BlockResponse {
 			{
 				type: "number_input",
 				action_id: "descriptionMin",
-				label: "Shortest acceptable SEO description",
+				label: t(lang, "descriptionMin"),
 				min: 0,
 				max: 300,
 				initial_value: settings.descriptionMin,
@@ -232,7 +376,7 @@ export function buildSettingsPage(settings: Settings): BlockResponse {
 			{
 				type: "number_input",
 				action_id: "descriptionMax",
-				label: "Longest acceptable SEO description",
+				label: t(lang, "descriptionMax"),
 				min: 0,
 				max: 300,
 				initial_value: settings.descriptionMax,
@@ -240,26 +384,27 @@ export function buildSettingsPage(settings: Settings): BlockResponse {
 			{
 				type: "toggle",
 				action_id: "reportMissingDescriptions",
-				label: "Report entries without an SEO description",
-				description: "Switch off if your templates always render a description of their own.",
+				label: t(lang, "reportMissing"),
+				description: t(lang, "reportMissingHelp"),
 				initial_value: settings.reportMissingDescriptions,
 			},
 			{
 				type: "number_input",
 				action_id: "pageSize",
-				label: "Entries per run",
+				label: t(lang, "pageSize"),
 				min: 1,
-				max: 100,
+				max: ID_BATCH,
 				initial_value: settings.pageSize,
 			},
-			{ type: "text_input", action_id: "schedule", label: "Schedule (cron, UTC)", initial_value: settings.schedule },
+			{ type: "text_input", action_id: "schedule", label: t(lang, "schedule"), initial_value: settings.schedule },
+			...collectionFields(settings, lang, collections),
 		],
-		submit: { label: "Save", action_id: SAVE_SETTINGS_ACTION },
+		submit: { label: t(lang, "save"), action_id: SAVE_SETTINGS_ACTION },
 	};
 	return {
 		blocks: [
-			{ type: "header", text: "Freshness settings" },
-			{ type: "context", text: "Every collection on the site is audited." },
+			{ type: "header", text: t(lang, "settingsTitle") },
+			{ type: "context", text: t(lang, "settingsIntro") },
 			form,
 		],
 	};

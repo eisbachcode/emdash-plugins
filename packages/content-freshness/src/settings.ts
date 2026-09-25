@@ -13,26 +13,63 @@
 import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
+import { ID_BATCH } from "./ids.js";
 import { DEFAULT_THRESHOLDS, type Thresholds } from "./rules.js";
 
 export const SETTINGS_KEY = "settings";
 
+/**
+ * What one collection sets for itself. A missing threshold means the site's
+ * default; 0 switches the rule off for the collection.
+ */
+export interface CollectionOverride {
+	staleMonths?: number;
+	draftMonths?: number;
+	/** Leave the collection out of the audit altogether. */
+	skip?: boolean;
+}
+
 export interface Settings extends Thresholds {
-	/** Entries per cron run. `content.list` returns at most 100. */
+	/** Entries per cron run, at most `ID_BATCH`. */
 	pageSize: number;
 	schedule: string;
+	collections: Record<string, CollectionOverride>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
 	...DEFAULT_THRESHOLDS,
 	pageSize: 50,
 	schedule: "0 4 * * *",
+	collections: {},
 };
+
+/** A collection slug as EmDash allows it. Anything else in stored settings is dropped. */
+const SLUG = /^[a-z][a-z0-9_]*$/;
+
+/** A form field for one collection's setting: `collection:<slug>:<setting>`. */
+const COLLECTION_FIELD = /^collection:([a-z][a-z0-9_]*):(staleMonths|draftMonths|skip)$/;
+
+export function collectionField(slug: string, setting: keyof CollectionOverride): string {
+	return `collection:${slug}:${setting}`;
+}
+
+/** The thresholds that apply to `collection`, and whether it is audited at all. */
+export function thresholdsFor(settings: Settings, collection: string): Thresholds & { skip: boolean } {
+	const own = settings.collections[collection] ?? {};
+	return {
+		staleMonths: own.staleMonths ?? settings.staleMonths,
+		draftMonths: own.draftMonths ?? settings.draftMonths,
+		descriptionMin: settings.descriptionMin,
+		descriptionMax: settings.descriptionMax,
+		reportMissingDescriptions: settings.reportMissingDescriptions,
+		skip: own.skip === true,
+	};
+}
 
 type NumberKey = "pageSize" | "staleMonths" | "draftMonths" | "descriptionMin" | "descriptionMax";
 
 const NUMBERS: Array<[NumberKey, number, number]> = [
-	["pageSize", 1, 100],
+	["pageSize", 1, ID_BATCH],
 	["staleMonths", 1, 120],
 	["draftMonths", 1, 120],
 	["descriptionMin", 0, 300],
@@ -75,11 +112,50 @@ export function normalizeSettings(stored: Record<string, unknown> | null | undef
 	const [min, max] = [settings.descriptionMin, settings.descriptionMax];
 	settings.descriptionMin = Math.min(min, max);
 	settings.descriptionMax = Math.max(min, max);
+	settings.collections = normalizeOverrides(source.collections);
 	return settings;
 }
 
-/** `current` with the submitted form values applied. Unknown keys are ignored. */
-export function applyForm(current: Settings, values: Record<string, unknown>): Settings {
+function normalizeOverrides(source: unknown): Record<string, CollectionOverride> {
+	if (typeof source !== "object" || source === null) return {};
+	const overrides: Record<string, CollectionOverride> = {};
+	for (const [slug, raw] of Object.entries(source as Record<string, unknown>)) {
+		if (!SLUG.test(slug) || typeof raw !== "object" || raw === null) continue;
+		const { staleMonths, draftMonths, skip } = raw as Record<string, unknown>;
+		const own: CollectionOverride = {};
+		const stale = months(staleMonths);
+		const draft = months(draftMonths);
+		if (stale !== undefined) own.staleMonths = stale;
+		if (draft !== undefined) own.draftMonths = draft;
+		if (skip === true) own.skip = true;
+		if (Object.keys(own).length > 0) overrides[slug] = own;
+	}
+	return overrides;
+}
+
+/**
+ * An override's months, or nothing. A value that is not a number is dropped
+ * rather than clamped, because 0 would switch the rule off.
+ */
+function months(value: unknown): number | undefined {
+	if (!isSet(value)) return undefined;
+	const n = Number(value);
+	return Number.isFinite(n) ? clampNumber(n, 0, 120, 0) : undefined;
+}
+
+/** An empty number field: no override. */
+function isSet(value: unknown): boolean {
+	return value !== undefined && value !== null && !(typeof value === "string" && !value.trim());
+}
+
+/**
+ * `current` with the submitted form values applied. Unknown keys are ignored.
+ *
+ * `shown` names the collections whose fields the form carried. The admin
+ * drops an emptied number field from the submission altogether, so for those
+ * collections a missing month field means the admin cleared it.
+ */
+export function applyForm(current: Settings, values: Record<string, unknown>, shown: string[] = []): Settings {
 	const merged: Record<string, unknown> = { ...current };
 	for (const [key] of NUMBERS) {
 		if (values[key] !== undefined) merged[key] = values[key];
@@ -88,5 +164,23 @@ export function applyForm(current: Settings, values: Record<string, unknown>): S
 	if (typeof values.reportMissingDescriptions === "boolean") {
 		merged.reportMissingDescriptions = values.reportMissingDescriptions;
 	}
+
+	const collections: Record<string, Record<string, unknown>> = {};
+	for (const [slug, own] of Object.entries(current.collections)) collections[slug] = { ...own };
+	for (const slug of shown) {
+		for (const setting of ["staleMonths", "draftMonths"] as const) {
+			if (!(collectionField(slug, setting) in values)) delete collections[slug]?.[setting];
+		}
+	}
+	for (const [key, value] of Object.entries(values)) {
+		const match = COLLECTION_FIELD.exec(key);
+		if (!match) continue;
+		const [, slug, setting] = match as unknown as [string, string, keyof CollectionOverride];
+		const own = (collections[slug] ??= {});
+		if (setting === "skip") own.skip = value === true;
+		else if (isSet(value)) own[setting] = value;
+		else delete own[setting];
+	}
+	merged.collections = collections;
 	return normalizeSettings(merged);
 }

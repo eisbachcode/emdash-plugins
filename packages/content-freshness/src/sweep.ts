@@ -3,9 +3,12 @@
  *
  * A sandboxed plugin gets ten subrequests per invocation and every `ctx`
  * call is one, so a run does one bounded slice and hands over to a
- * follow-up. A run costs two KV reads, one `content.list`, at most one
- * `putMany` and one `deleteMany`, one KV write and one schedule, plus the
- * collection list when a sweep starts.
+ * follow-up. An audit run costs two KV reads (settings, state), one
+ * `content.list`, one `dismissals.getMany`, at most one `putMany` and one
+ * `deleteMany`, one KV write and one schedule, plus the collection list when
+ * a sweep starts: nine at most. A cleanup run costs six, its log line
+ * included. `tests/budget.test.ts` counts every path; run it after adding a
+ * `ctx` call.
  *
  * When the last collection is done, the sweep removes every row it did not
  * write or confirm: entries that were trashed or deleted, and collections
@@ -15,8 +18,10 @@
 import { isFollowUp, listCollections, scheduleFollowUp, type ChainEvent, type SweepChain } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
+import type { EntryDismissals } from "./dismissals.js";
 import { evaluateEntries, store } from "./findings.js";
-import { readSettings, type Settings } from "./settings.js";
+import { findingId, ID_BATCH } from "./ids.js";
+import { readSettings, thresholdsFor, type Settings } from "./settings.js";
 import { AUDIT_TASK } from "./schedule.js";
 import { readState, writeState, type State, type Sweep } from "./state.js";
 
@@ -29,8 +34,6 @@ export const CHAIN: SweepChain = { next: ["audit-next-a", "audit-next-b"], maxSt
 /** A sweep that has not finished in this long is dropped and started over. */
 const ABANDON_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Most stale rows one cleanup run removes: storage queries return at most 100. */
-const CLEANUP_BATCH = 100;
 
 /**
  * Handle a cron event. A start while a sweep is under way continues that
@@ -41,7 +44,9 @@ const CLEANUP_BATCH = 100;
 export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<void> {
 	const starts = event.name === AUDIT_TASK || event.name === AUDIT_NOW_TASK;
 	if (!starts && !isFollowUp(CHAIN, event.name)) return;
-	if (!ctx.content) return;
+	// Without `schema:read` the collection list comes back empty, and a sweep
+	// over no collections would go straight to cleaning up every row.
+	if (!ctx.content || !ctx.schema) return;
 
 	const [settings, state] = await Promise.all([readSettings(ctx), readState(ctx)]);
 	const now = new Date();
@@ -49,8 +54,7 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
 	if (!state.sweep || abandoned(state.sweep, now)) {
 		// A follow-up of a sweep that already finished has nothing to do.
 		if (!starts) return;
-		state.sweep = await newSweep(ctx, now);
-		if (!state.sweep) return;
+		state.sweep = await newSweep(ctx, settings, now);
 	}
 
 	const more = await step(ctx, settings, state, now);
@@ -60,9 +64,14 @@ export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<v
 	}
 }
 
-async function newSweep(ctx: PluginContext, now: Date): Promise<Sweep | null> {
-	const collections = (await listCollections(ctx)).map((collection) => collection.slug);
-	if (collections.length === 0) return null;
+/**
+ * A sweep over every collection not left out. With none left it still runs
+ * its cleanup, which removes the rows of collections that were left out.
+ */
+async function newSweep(ctx: PluginContext, settings: Settings, now: Date): Promise<Sweep> {
+	const collections = (await listCollections(ctx))
+		.map((collection) => collection.slug)
+		.filter((slug) => !thresholdsFor(settings, slug).skip);
 	return { startedAt: now.toISOString(), collections, index: 0, cursor: null, phase: "audit" };
 }
 
@@ -86,7 +95,7 @@ async function step(ctx: PluginContext, settings: Settings, state: State, now: D
 
 	const stale = await ctx.storage.findings.query({
 		where: { seenIn: { lt: sweep.startedAt } },
-		limit: CLEANUP_BATCH,
+		limit: ID_BATCH,
 	});
 	if (stale.items.length > 0) await ctx.storage.findings.deleteMany(stale.items.map((item) => item.id));
 	if (stale.hasMore) return true;
@@ -106,6 +115,13 @@ async function auditPage(
 ): Promise<void> {
 	const content = ctx.content;
 	if (!content) return;
+	const thresholds = thresholdsFor(settings, collection);
+	// Left out since the sweep started: its rows go with the cleanup.
+	if (thresholds.skip) {
+		sweep.index += 1;
+		sweep.cursor = null;
+		return;
+	}
 	let page;
 	try {
 		page = await content.list(collection, {
@@ -125,7 +141,12 @@ async function auditPage(
 		return;
 	}
 
-	await store(ctx, evaluateEntries(collection, page.items, settings, now, sweep.startedAt));
+	const ids = page.items.map((entry) => findingId(collection, entry.id));
+	const dismissals = ids.length > 0 ? await ctx.storage.dismissals.getMany(ids) : new Map();
+	await store(
+		ctx,
+		evaluateEntries(collection, page.items, thresholds, now, sweep.startedAt, dismissals as Map<string, EntryDismissals>),
+	);
 
 	if (page.cursor) {
 		sweep.cursor = page.cursor;

@@ -11,7 +11,7 @@ import plugin from "../src/plugin.js";
  * handler has to answer to both.
  */
 
-/** Minimal context: settings and state come from KV, and the site has no collections, so no sweep starts. */
+/** Minimal context: settings and state come from KV, and a site without collections sweeps straight to its cleanup. */
 function fakeContext() {
 	const warns: string[] = [];
 	const reads: string[] = [];
@@ -21,9 +21,11 @@ function fakeContext() {
 				reads.push(key);
 				return null;
 			},
+			async set() {},
 		},
 		content: {},
 		schema: { listCollections: async () => [] },
+		storage: { findings: { query: async () => ({ items: [], hasMore: false }) } },
 		log: {
 			debug() {},
 			info() {},
@@ -72,5 +74,21 @@ describe("cron task names", () => {
 		const { reads, warns } = await run("some-other-plugins-task");
 		expect(reads).toHaveLength(0);
 		expect(warns).toHaveLength(0);
+	});
+});
+
+describe("a context without schema:read", () => {
+	it("starts no sweep, which would clean up every row", async () => {
+		const queried: string[] = [];
+		const ctx = {
+			kv: { get: async () => null, set: async () => {} },
+			content: {},
+			storage: { findings: { query: async () => (queried.push("query"), { items: [], hasMore: false }) } },
+			log: { debug() {}, info() {}, warn() {}, error() {} },
+		} as unknown as PluginContext;
+
+		await cronHandler()({ name: "audit", scheduledAt: "2026-09-20T03:00:00.000Z" }, ctx);
+
+		expect(queried).toEqual([]);
 	});
 });

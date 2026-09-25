@@ -1,15 +1,15 @@
-import type { StatsBlock, TableBlock } from "@emdash-cms/blocks";
+import type { ActionsBlock, Block, ButtonElement, SectionBlock, StatsBlock } from "@emdash-cms/blocks";
 import { validateBlocks } from "@emdash-cms/blocks/server";
 import { createPluginRuntimeTestHost, type PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, expect, it } from "vitest";
 
 import type { EntryFindings } from "../src/findings.js";
-import { PAGE_ACTION } from "../src/report.js";
+import { VIEW_ACTION } from "../src/report.js";
 
 /**
- * Plugin storage returns at most 100 rows per query. The report used to ask
- * for 200 and sort what came back, so on a site with more than 100 findings
- * an urgent one could be missing from the table while the stats counted it.
+ * Plugin storage returns at most 100 rows per query. The report once asked
+ * for 200 and sorted what came back, so on a site with more than 100
+ * findings an urgent one could be missing while the stats counted it.
  * Alone in this file because plugin storage outlives a host within a file.
  */
 
@@ -25,16 +25,25 @@ function row(entryId: string, rank: number): EntryFindings {
 		collection: "posts",
 		entryId,
 		slug: entryId.toLowerCase(),
+		title: null,
 		locale: "en",
+		authorId: null,
 		rank,
 		hits:
 			rank === 0
-				? [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish", status: "draft" } }]
+				? [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish" } }]
 				: [{ rule: "stale-draft", severity: "low", params: { since: "2025-01-01" } }],
 		entryUpdatedAt: "2025-01-01T00:00:00.000Z",
 		seenIn: "2026-09-25T04:00:00.000Z",
 	};
 }
+
+const sections = (blocks: Block[]) => blocks.filter((block): block is SectionBlock => block.type === "section");
+const nextPage = (blocks: Block[]) =>
+	blocks
+		.filter((block): block is ActionsBlock => block.type === "actions")
+		.flatMap((block) => block.elements)
+		.find((element): element is ButtonElement => element.type === "button" && element.action_id === VIEW_ACTION && element.label === "Next page");
 
 it("opens with the most urgent entries however many findings there are", async () => {
 	host = await createPluginRuntimeTestHost();
@@ -48,14 +57,13 @@ it("opens with the most urgent entries however many findings there are", async (
 	expect(validateBlocks(first.blocks).valid).toBe(true);
 	const stats = first.blocks.find((block): block is StatsBlock => block.type === "stats");
 	expect(stats?.items.map((item) => item.value)).toEqual([1, 0, 100, 101]);
-	const table = first.blocks.find((block): block is TableBlock => block.type === "table");
-	expect(table?.rows[0]).toMatchObject({ entry: "zurgent", priority: "Urgent" });
-	expect(table?.next_cursor).toBeTruthy();
+	expect(sections(first.blocks)[0]?.text).toMatch(/^zurgent/);
 
-	const second = await host.admin.act("/report", PAGE_ACTION, { value: { cursor: table?.next_cursor } });
-	const next = second.blocks.find((block): block is TableBlock => block.type === "table");
-	expect(next?.rows.length).toBeGreaterThan(0);
-	expect(next?.rows.map((r) => r.entry)).not.toContain("zurgent");
+	const next = nextPage(first.blocks);
+	expect(next).toBeDefined();
+	const second = await host.admin.act("/report", VIEW_ACTION, { value: next?.value });
+	expect(sections(second.blocks).length).toBeGreaterThan(0);
+	expect(sections(second.blocks).map((section) => section.text).join()).not.toContain("zurgent");
 });
 
 it("falls back to the first page when the row the cursor points at is gone", async () => {
@@ -65,13 +73,11 @@ it("falls back to the first page when the row the cursor points at is gone", asy
 		await host.fixtures.plugin.storage("findings", `posts:${id}`, row(id, 1));
 	}
 	const first = await host.admin.loadPage("/report");
-	const table = first.blocks.find((block): block is TableBlock => block.type === "table");
-	const last = table?.rows.at(-1)?.entry as string;
-	// Its entry was fixed or deleted before "Load more".
+	const last = sections(first.blocks).at(-1)?.text.split(" · ")[0] as string;
+	// Its entry was fixed or deleted before "Next page".
 	await host.transport.invokeHook("content:afterDelete", { id: last.toUpperCase(), collection: "posts", permanent: true });
 
-	const next = await host.admin.act("/report", PAGE_ACTION, { value: { cursor: table?.next_cursor } });
+	const next = await host.admin.act("/report", VIEW_ACTION, { value: nextPage(first.blocks)?.value });
 
-	const rows = next.blocks.find((block): block is TableBlock => block.type === "table")?.rows ?? [];
-	expect(rows.length).toBeGreaterThan(0);
+	expect(sections(next.blocks).length).toBeGreaterThan(0);
 });

@@ -1,7 +1,7 @@
 import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AUDIT_NOW_ACTION, PAGE_ACTION, SAVE_SETTINGS_ACTION } from "../src/report.js";
+import { AUDIT_NOW_ACTION, SAVE_SETTINGS_ACTION, VIEW_ACTION } from "../src/report.js";
 import { SETTINGS_KEY } from "../src/settings.js";
 import { STATE_KEY, type State } from "../src/state.js";
 import { bridgeCalls } from "./bridge-calls.js";
@@ -132,6 +132,23 @@ describe("content hooks", () => {
 	});
 });
 
+describe("the Freshness panel", () => {
+	it("opening it, and setting a finding aside", async () => {
+		host = await newHost();
+		const runtime = host;
+		const entry = await undescribed(runtime, "posts", "panel-budget");
+
+		const load = await bridgeCalls(() => runtime.admin.loadEditorPanel("freshness", "posts", entry.id));
+		expect(load.length).toBeLessThanOrEqual(LIMIT);
+
+		const act = await bridgeCalls(() =>
+			runtime.admin.actEditorPanel("freshness", "posts", entry.id, "set_aside", { value: { rule: "missing-description" } }),
+		);
+		expect(act).toContain("storagePut");
+		expect(act.length).toBeLessThanOrEqual(LIMIT);
+	});
+});
+
 describe("admin requests", () => {
 	async function siteWithFindings() {
 		const runtime = await newHost();
@@ -141,6 +158,13 @@ describe("admin requests", () => {
 		await runtime.transport.invokeHook("cron", { name: "audit" });
 		return runtime;
 	}
+
+	it("an empty dashboard spends nothing on counting the viewer's entries", async () => {
+		host = await newHost();
+		const runtime = host;
+		const calls = await bridgeCalls(() => runtime.admin.loadWidget("summary"));
+		expect(calls.filter((call) => call === "storageCount")).toHaveLength(3);
+	});
 
 	it("the first dashboard view, which also schedules the audit", async () => {
 		host = await siteWithFindings();
@@ -163,7 +187,7 @@ describe("admin requests", () => {
 		host = await siteWithFindings();
 		const runtime = host;
 		for (const invocation of [
-			() => runtime.admin.act("/report", PAGE_ACTION, { value: { cursor: "x" } }),
+			() => runtime.admin.act("/report", VIEW_ACTION, { value: { collection: "posts", rank: 1, cursor: "x" } }),
 			() => runtime.admin.act("/report", AUDIT_NOW_ACTION),
 			() => runtime.admin.submit("/settings", SAVE_SETTINGS_ACTION, { schedule: "15 3 * * *", staleMonths: 6 }),
 		]) {
