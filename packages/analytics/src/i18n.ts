@@ -1,0 +1,439 @@
+/**
+ * The plugin's own message catalogue.
+ *
+ * Block Kit plugins localize themselves: the host passes the administrator's
+ * locale in `routeCtx.ui` and does not consume plugin catalogues. English is
+ * the source and the fallback for every locale without a catalogue here.
+ * Manifest strings (page label, widget title, settings form) stay static.
+ *
+ * `de` is typed against the English keys, so a missing German entry fails
+ * the build rather than showing an English sentence in a German admin.
+ */
+
+type Plural = { one: string; other: string };
+type Message = string | Plural;
+
+const en = {
+	noAnalyticsYet: "No analytics yet",
+	visitsLastDays: "Visits, last {days} days",
+	pageviewsLastDays: "Page views, last {days} days",
+	pageviews: "Page views",
+	visits: "Visits",
+	colPage: "Page",
+	colPath: "Path",
+	colViews: "Views",
+	colVisits: "Visits",
+	colEntry: "Entry",
+	colCollection: "Collection",
+	colSource: "Source",
+	colCountry: "Country",
+	noPagesYet: "No pages recorded yet.",
+	nothingRecorded: "Nothing recorded yet.",
+	refresh: "Refresh",
+	openAnalytics: "Open analytics",
+	openInCloudflare: "Open in Cloudflare",
+	rangeDays: { one: "{count} day", other: "{count} days" },
+	topEntries: "Top entries",
+	referrers: "Referrers",
+	countries: "Countries",
+	entriesEmpty: "No per-entry numbers yet. They appear once the sync has matched pages to entries.",
+	snapshotSince: "Referrers and countries since {date}, from the latest sync.",
+	historyStarts: "History starts on {date}",
+	coverageRange: "Per-entry numbers for the last {days} days.",
+	coveragePartial: "Per-entry numbers since {date}; older days in this range were not read.",
+	coverageMatched: "Per-entry numbers since {date}. Days before the plugin matched an entry are not counted per entry.",
+	coverageLive: "Per-entry numbers since {date}, as far back as the provider counts every page view.",
+	breakdownsSince: "Referrers and countries since {date}, as far back as the provider counts every page view.",
+	perEntry: "Per entry",
+	overview: "Overview",
+
+	allCollections: "All",
+	modeEntries: "Each language",
+	modeCombined: "Languages combined",
+	firstPage: "First page",
+	rebuildIndex: "Rebuild index",
+	rebuildRequested: "Rebuilding the content index. It runs with the next syncs, a few entries at a time.",
+	col7Days: "7 days",
+	col30Days: "30 days",
+	colLanguage: "Language",
+	colAllLanguages: "All languages, 30 days",
+	colByLanguage: "By language, {days} days",
+	colPublished: "Published",
+	sortMostViewed: "Most viewed first, last {days} days.",
+	sortLeastViewed: "Least viewed first, last {days} days.",
+	showingRows: "Entries {from} to {to}.",
+	historyThirty: "30-day figures count from {date}, where the stored history starts.",
+	combinedPartial: "Languages combined across the first {count} entries in this order; entries after them are left out.",
+	indexingAt: "Indexing content: collection {at} of {total}. Entries appear as they are indexed.",
+	rebuildingAt: "Rebuilding the content index: collection {at} of {total}.",
+	noEntriesYet: "No entries yet",
+	noEntriesIndexing: "The content index is still being built. Entries appear as it progresses.",
+	noEntriesNoUrls:
+		"No published entry has a public URL. Check that the site URL is set in EmDash and that the collections have URL patterns.",
+	noEntriesHere: "No published entries here.",
+	panelNoPage: "No page for this entry yet",
+	panelNoPageDetail: "Views appear once the entry is published at a public URL and the next sync has run.",
+	panelNotPublished: "Not published at the moment; these are the numbers from when it was.",
+	panelCountedAt: "Counted at {path}",
+	panelAllLanguages: "All languages: {count} in 30 days",
+
+	checkSetup: "Check setup",
+	checkAgain: "Check again",
+	backToAnalytics: "Back to analytics",
+	setupTitle: "Setup check",
+	setupAllGood: "Everything the numbers depend on is in place.",
+	setupProblems: {
+		one: "{count} problem stops or distorts the numbers.",
+		other: "{count} problems stop or distort the numbers.",
+	},
+	colCheck: "Check",
+	colStatus: "Status",
+	colDetails: "Details",
+	statusOk: "OK",
+	statusProblem: "Problem",
+	statusWaiting: "Waiting",
+	statusSkipped: "Not checked",
+	checkSource: "Data source",
+	checkCredentials: "API token and account",
+	checkAccess: "Cloudflare access",
+	checkSiteTag: "Site tag",
+	checkHosts: "Hostnames",
+	checkSiteUrl: "Site URL",
+	checkIndex: "Content index",
+	checkScheduler: "Scheduled sync",
+	checkLastSync: "Last sync",
+	sourceCloudflare: "Cloudflare Web Analytics.",
+	sourceDemo: "Demo data: generated numbers. Nothing on Cloudflare is checked.",
+	credentialsSaved: "Saved.",
+	encryptionKeyHint:
+		"If saving the token fails with an encryption error, the site needs EMDASH_ENCRYPTION_KEY: generate a value with npx emdash secrets generate and store it as a secret (on Cloudflare: wrangler secret put EMDASH_ENCRYPTION_KEY).",
+	needsCredentials: "Needs the API token and the account ID.",
+	accessOk: "The token can read this account's Web Analytics.",
+	needsAccess: "Needs working Cloudflare access.",
+	siteTagMissing: "No site tag set. Copy one from the list below into Web Analytics site tag in the plugin's settings.",
+	siteTagFound: "{tag}: {count} page views in the last {days} days.",
+	siteTagNotFound:
+		"No traffic under this site tag in the last {days} days. The sites with traffic are listed below. The token in the beacon snippet is a different value from the site tag.",
+	accountNoTraffic:
+		"This account reported no Web Analytics traffic in the last {days} days. Check that the beacon is on the site.",
+	needsSiteTag: "Needs a site tag with traffic.",
+	hostsEvery: "No hostname filter: counting every hostname this site tag reports ({hosts}).",
+	hostsCounted: "Counted: {hosts}.",
+	hostsPartly: "Counted: {counted}. Not counted: {excluded}.",
+	hostsNone:
+		"Cloudflare reports this site tag under {reported}, but the plugin counts only {counted}. Change Hostnames to count in the plugin's settings.",
+	siteUrlMissing:
+		"EmDash has no site URL stored, so entries have no public address and page views cannot be matched to them. EmDash stores it (the emdash:site_url option) when the setup wizard runs on the live domain.",
+	needsSiteUrl: "Needs the site URL.",
+	indexMatched: { one: "{count} entry matched to its page.", other: "{count} entries matched to their pages." },
+	schedulerNotScheduled: "The sync is not scheduled yet. Opening the dashboard schedules it.",
+	schedulerWaiting: "Scheduled every {interval}, not run yet. If it still has not run after {interval}, the site runs no scheduled tasks.",
+	schedulerOk: "Last run {age}, scheduled every {interval}.",
+	schedulerStale: "Last run {age}, but scheduled every {interval}: the site's scheduler is not running on time.",
+	schedulerNeverRan: "Scheduled {age} to run every {interval}, and it has never run: the site's scheduler is not running.",
+	schedulerRefreshStuck: "A sync requested {age} has not run: the site's scheduler is not running.",
+	schedulerHowTo:
+		"On Cloudflare Workers, EmDash runs scheduled tasks from a Cron Trigger and the scheduled handler in src/worker.ts. npx emdash doctor checks that both are configured.",
+	minutes: { one: "{count} minute", other: "{count} minutes" },
+	hours: { one: "{count} hour", other: "{count} hours" },
+	sitesTitle: "Sites on this account",
+	colSiteTag: "Site tag",
+	colHostnames: "Hostnames",
+	sitesNote:
+		"Sites with page views in the last {days} days. In the Cloudflare dashboard, the site tag is also the ID at the end of the site's Manage site link.",
+
+	demoData: "Demo data, not real traffic",
+	synced: "Synced {age}",
+	notSynced: "Not synced yet",
+	estimatedCloudflare: "estimated (Cloudflare sampled this range)",
+	estimatedSampled: "estimated (sampled)",
+	todayCounting: "today is still counting",
+	nothingMatched: "no page is matched to an entry yet; Check setup on the Analytics page says why",
+	lastAttemptFailed: "Last attempt failed: {error}",
+	lastAttemptFailedAge: "Last attempt failed {age}: {error}",
+	firstSyncPending: "The first sync has not run yet. It is scheduled now; numbers appear after it completes.",
+	syncedNoViews:
+		"Synced {age}, but Cloudflare reported no page views for this site tag. Check that the beacon is on the site.",
+	recently: "recently",
+
+	noEarlierPeriod: "no earlier period to compare yet",
+	noneEitherPeriod: "none in either period",
+	upFromNone: "up from none last period",
+	vsPrevious: "{change} vs previous period",
+
+	syncRequested: "Sync requested. The numbers update with the next scheduled run.",
+	pageRefreshed: "Updated with the latest numbers.",
+	pageRefreshFailed: "The provider did not answer; showing the stored numbers.",
+	syncUnschedulable: "This site runs no scheduled tasks, so a sync cannot be requested.",
+
+	notConfigured: "Analytics is not configured yet: add {parts} in the plugin's settings.",
+	partApiToken: "an API token with Account → Account Analytics → Read",
+	partAccountId: "the Cloudflare account ID",
+	noNetwork: "Analytics cannot reach the network: the network:request capability is not granted.",
+	noSiteTagSites: "No site tag set. Sites with traffic on this account: {sites}.",
+	noSiteTagNoTraffic:
+		"No site tag set, and this account reported no Web Analytics traffic in the last 30 days. Check that the beacon is on the site.",
+	indexingFailed: "Indexing content failed: {detail}",
+	summingFailed: "Summing the 30-day views failed: {detail}",
+	storageUnavailable: "Storage collections are not available.",
+	cfNoAccount:
+		"Cloudflare returned no account. Check the Account ID, and that the token's permission is Account → Account Analytics → Read.",
+	cfForbidden: "Cloudflare rejected the token (403). It needs Account → Account Analytics → Read.",
+	cfRateLimited:
+		"Cloudflare rate-limited the request (429). The documented budget is 300 GraphQL queries per five minutes.",
+	cfHttp: "Cloudflare returned HTTP {status}",
+	cfZoneToken:
+		"Cloudflare refused the account (not authorized for that account). The token most likely carries Zone Analytics Read; this dataset is account-scoped and needs Account → Account Analytics → Read.",
+	cfUnreachable: "Cloudflare could not be reached: {detail}",
+	cfNotJson: "Cloudflare returned a response that is not JSON",
+	cfTruncated: "Cloudflare truncated the per-path response; reduce the chunk size.",
+	cfTooManyGroups:
+		"Too many groups for one request: {paths} paths x {days} days exceeds Cloudflare's {max}-group page size. Reduce the chunk size.",
+	cfNoRetention: "Cloudflare returned no retention settings for this dataset",
+} satisfies Record<string, Message>;
+
+export type MessageKey = keyof typeof en;
+
+const de: Record<MessageKey, Message> = {
+	noAnalyticsYet: "Noch keine Analysedaten",
+	visitsLastDays: "Besuche, letzte {days} Tage",
+	pageviewsLastDays: "Seitenaufrufe, letzte {days} Tage",
+	pageviews: "Seitenaufrufe",
+	visits: "Besuche",
+	colPage: "Seite",
+	colPath: "Pfad",
+	colViews: "Aufrufe",
+	colVisits: "Besuche",
+	colEntry: "Eintrag",
+	colCollection: "Kollektion",
+	colSource: "Quelle",
+	colCountry: "Land",
+	noPagesYet: "Noch keine Seiten erfasst.",
+	nothingRecorded: "Noch nichts erfasst.",
+	refresh: "Aktualisieren",
+	openAnalytics: "Analytics öffnen",
+	openInCloudflare: "In Cloudflare öffnen",
+	rangeDays: { one: "{count} Tag", other: "{count} Tage" },
+	topEntries: "Meistbesuchte Einträge",
+	referrers: "Verweisquellen",
+	countries: "Länder",
+	entriesEmpty:
+		"Noch keine Zahlen pro Eintrag. Sie erscheinen, sobald die Synchronisierung Seiten den Einträgen zugeordnet hat.",
+	snapshotSince: "Verweisquellen und Länder seit {date}, aus der letzten Synchronisierung.",
+	historyStarts: "Verlauf beginnt am {date}",
+	coverageRange: "Zahlen pro Eintrag für die letzten {days} Tage.",
+	coveragePartial: "Zahlen pro Eintrag seit {date}; ältere Tage in diesem Zeitraum wurden nicht gelesen.",
+	coverageMatched:
+		"Zahlen pro Eintrag seit {date}. Tage, bevor das Plugin eine Seite einem Eintrag zugeordnet hat, zählen nicht pro Eintrag.",
+	coverageLive: "Zahlen pro Eintrag seit {date}, so weit zurück, wie der Anbieter jeden Seitenaufruf zählt.",
+	breakdownsSince: "Verweisquellen und Länder seit {date}, so weit zurück, wie der Anbieter jeden Seitenaufruf zählt.",
+	perEntry: "Pro Eintrag",
+	overview: "Übersicht",
+
+	allCollections: "Alle",
+	modeEntries: "Jede Sprache einzeln",
+	modeCombined: "Sprachen zusammen",
+	firstPage: "Erste Seite",
+	rebuildIndex: "Index neu aufbauen",
+	rebuildRequested:
+		"Der Inhaltsindex wird neu aufgebaut. Das läuft mit den nächsten Synchronisierungen, jeweils ein paar Einträge.",
+	col7Days: "7 Tage",
+	col30Days: "30 Tage",
+	colLanguage: "Sprache",
+	colAllLanguages: "Alle Sprachen, 30 Tage",
+	colByLanguage: "Nach Sprache, {days} Tage",
+	colPublished: "Veröffentlicht",
+	sortMostViewed: "Meistbesuchte zuerst, letzte {days} Tage.",
+	sortLeastViewed: "Am wenigsten besuchte zuerst, letzte {days} Tage.",
+	showingRows: "Einträge {from} bis {to}.",
+	historyThirty: "Die 30-Tage-Zahlen zählen ab {date}, dem Beginn des gespeicherten Verlaufs.",
+	combinedPartial:
+		"Sprachen zusammengefasst über die ersten {count} Einträge in dieser Reihenfolge; spätere Einträge fehlen.",
+	indexingAt: "Inhalte werden indiziert: Kollektion {at} von {total}. Einträge erscheinen, sobald sie indiziert sind.",
+	rebuildingAt: "Der Inhaltsindex wird neu aufgebaut: Kollektion {at} von {total}.",
+	noEntriesYet: "Noch keine Einträge",
+	noEntriesIndexing: "Der Inhaltsindex wird noch aufgebaut. Einträge erscheinen nach und nach.",
+	noEntriesNoUrls:
+		"Kein veröffentlichter Eintrag hat eine öffentliche URL. Prüfe, ob die URL der Webseite in EmDash eingetragen ist und die Kollektionen URL-Muster haben.",
+	noEntriesHere: "Hier gibt es keine veröffentlichten Einträge.",
+	panelNoPage: "Noch keine Seite für diesen Eintrag",
+	panelNoPageDetail:
+		"Aufrufe erscheinen, sobald der Eintrag unter einer öffentlichen URL veröffentlicht ist und die nächste Synchronisierung gelaufen ist.",
+	panelNotPublished: "Derzeit nicht veröffentlicht; das sind die Zahlen aus der Zeit davor.",
+	panelCountedAt: "Gezählt unter {path}",
+	panelAllLanguages: "Alle Sprachen: {count} in 30 Tagen",
+
+	checkSetup: "Einrichtung prüfen",
+	checkAgain: "Erneut prüfen",
+	backToAnalytics: "Zurück zur Analyse",
+	setupTitle: "Einrichtung",
+	setupAllGood: "Alles, wovon die Zahlen abhängen, ist eingerichtet.",
+	setupProblems: {
+		one: "{count} Problem verhindert oder verfälscht die Zahlen.",
+		other: "{count} Probleme verhindern oder verfälschen die Zahlen.",
+	},
+	colCheck: "Prüfung",
+	colStatus: "Status",
+	colDetails: "Details",
+	statusOk: "OK",
+	statusProblem: "Problem",
+	statusWaiting: "Ausstehend",
+	statusSkipped: "Nicht geprüft",
+	checkSource: "Datenquelle",
+	checkCredentials: "API-Token und Konto",
+	checkAccess: "Zugriff auf Cloudflare",
+	checkSiteTag: "Site-Tag",
+	checkHosts: "Hostnamen",
+	checkSiteUrl: "Website-URL",
+	checkIndex: "Inhaltsindex",
+	checkScheduler: "Geplante Synchronisierung",
+	checkLastSync: "Letzte Synchronisierung",
+	sourceCloudflare: "Cloudflare Web Analytics.",
+	sourceDemo: "Demodaten: erzeugte Zahlen. Bei Cloudflare wird nichts geprüft.",
+	credentialsSaved: "Gespeichert.",
+	encryptionKeyHint:
+		"Wenn das Speichern des Tokens mit einem Verschlüsselungsfehler scheitert, fehlt der Website EMDASH_ENCRYPTION_KEY: Erzeuge einen Wert mit npx emdash secrets generate und hinterlege ihn als Secret (bei Cloudflare: wrangler secret put EMDASH_ENCRYPTION_KEY).",
+	needsCredentials: "Braucht API-Token und Konto-ID.",
+	accessOk: "Das Token kann die Web Analytics dieses Kontos lesen.",
+	needsAccess: "Braucht funktionierenden Zugriff auf Cloudflare.",
+	siteTagMissing:
+		"Kein Site-Tag eingetragen. Übernimm einen aus der Liste unten in das Feld Web Analytics site tag in den Einstellungen des Plugins.",
+	siteTagFound: "{tag}: {count} Seitenaufrufe in den letzten {days} Tagen.",
+	siteTagNotFound:
+		"Unter diesem Site-Tag gab es in den letzten {days} Tagen keinen Traffic. Die Sites mit Traffic stehen unten. Das Token im Beacon-Snippet ist ein anderer Wert als das Site-Tag.",
+	accountNoTraffic:
+		"Dieses Konto hat in den letzten {days} Tagen keinen Web-Analytics-Traffic gemeldet. Prüfe, ob der Beacon auf der Website eingebunden ist.",
+	needsSiteTag: "Braucht ein Site-Tag mit Traffic.",
+	hostsEvery: "Kein Hostnamen-Filter: Gezählt wird jeder Hostname, den dieses Site-Tag meldet ({hosts}).",
+	hostsCounted: "Gezählt: {hosts}.",
+	hostsPartly: "Gezählt: {counted}. Nicht gezählt: {excluded}.",
+	hostsNone:
+		"Cloudflare meldet dieses Site-Tag unter {reported}, das Plugin zählt aber nur {counted}. Ändere Hostnames to count in den Einstellungen des Plugins.",
+	siteUrlMissing:
+		"EmDash hat keine Website-URL gespeichert, deshalb haben Einträge keine öffentliche Adresse und Seitenaufrufe lassen sich ihnen nicht zuordnen. EmDash speichert sie (die Option emdash:site_url), wenn der Einrichtungsassistent auf der Live-Domain läuft.",
+	needsSiteUrl: "Braucht die Website-URL.",
+	indexMatched: {
+		one: "{count} Eintrag ist seiner Seite zugeordnet.",
+		other: "{count} Einträge sind ihren Seiten zugeordnet.",
+	},
+	schedulerNotScheduled: "Die Synchronisierung ist noch nicht geplant. Das Öffnen des Dashboards plant sie ein.",
+	schedulerWaiting:
+		"Geplant alle {interval}, noch nicht gelaufen. Wenn sie nach {interval} noch nicht gelaufen ist, führt die Website keine geplanten Aufgaben aus.",
+	schedulerOk: "Zuletzt gelaufen {age}, geplant alle {interval}.",
+	schedulerStale: "Zuletzt gelaufen {age}, geplant ist sie aber alle {interval}: Der Scheduler der Website läuft nicht pünktlich.",
+	schedulerNeverRan:
+		"Eingeplant {age}, alle {interval}, und noch nie gelaufen: Der Scheduler der Website läuft nicht.",
+	schedulerRefreshStuck: "Eine {age} angeforderte Synchronisierung ist nicht gelaufen: Der Scheduler der Website läuft nicht.",
+	schedulerHowTo:
+		"Auf Cloudflare Workers führt EmDash geplante Aufgaben über einen Cron Trigger und den scheduled-Handler in src/worker.ts aus. npx emdash doctor prüft, ob beides eingerichtet ist.",
+	minutes: { one: "{count} Minute", other: "{count} Minuten" },
+	hours: { one: "{count} Stunde", other: "{count} Stunden" },
+	sitesTitle: "Sites in diesem Konto",
+	colSiteTag: "Site-Tag",
+	colHostnames: "Hostnamen",
+	sitesNote:
+		"Sites mit Seitenaufrufen in den letzten {days} Tagen. Im Cloudflare-Dashboard ist das Site-Tag auch die ID am Ende des Links Manage site der Site.",
+
+	demoData: "Demodaten, keine echten Besuche",
+	synced: "Synchronisiert {age}",
+	notSynced: "Noch nicht synchronisiert",
+	estimatedCloudflare: "geschätzt (Cloudflare hat diesen Zeitraum per Stichprobe erfasst)",
+	estimatedSampled: "geschätzt (Stichprobe)",
+	todayCounting: "heute läuft die Zählung noch",
+	nothingMatched: "noch keine Seite einem Eintrag zugeordnet; „Einrichtung prüfen“ auf der Seite Analytics nennt den Grund",
+	lastAttemptFailed: "Letzter Versuch fehlgeschlagen: {error}",
+	lastAttemptFailedAge: "Letzter Versuch fehlgeschlagen {age}: {error}",
+	firstSyncPending:
+		"Die erste Synchronisierung ist noch nicht gelaufen. Sie ist eingeplant; die Zahlen erscheinen, sobald sie abgeschlossen ist.",
+	syncedNoViews:
+		"Synchronisiert {age}, aber Cloudflare meldet für dieses Site-Tag keine Seitenaufrufe. Prüfe, ob das Beacon auf der Webseite eingebunden ist.",
+	recently: "kürzlich",
+
+	noEarlierPeriod: "noch kein früherer Zeitraum zum Vergleich",
+	noneEitherPeriod: "in keinem der beiden Zeiträume",
+	upFromNone: "gestiegen von null im vorigen Zeitraum",
+	vsPrevious: "{change} ggü. vorigem Zeitraum",
+
+	syncRequested: "Synchronisierung angefordert. Die Zahlen werden beim nächsten geplanten Lauf aktualisiert.",
+	pageRefreshed: "Mit den neuesten Zahlen aktualisiert.",
+	pageRefreshFailed: "Der Anbieter hat nicht geantwortet; angezeigt werden die gespeicherten Zahlen.",
+	syncUnschedulable:
+		"Diese Webseite führt keine geplanten Aufgaben aus, daher lässt sich keine Synchronisierung anfordern.",
+
+	notConfigured: "Analytics ist noch nicht eingerichtet: Trage {parts} in den Einstellungen des Plugins ein.",
+	partApiToken: "ein API-Token mit Account → Account Analytics → Read",
+	partAccountId: "die Cloudflare-Konto-ID",
+	noNetwork: "Analytics kann das Netzwerk nicht erreichen: Die Berechtigung network:request ist nicht erteilt.",
+	noSiteTagSites: "Kein Site-Tag gesetzt. Webseiten mit Besuchen in diesem Konto: {sites}.",
+	noSiteTagNoTraffic:
+		"Kein Site-Tag gesetzt, und dieses Konto hat in den letzten 30 Tagen keine Web-Analytics-Besuche gemeldet. Prüfe, ob das Beacon auf der Webseite eingebunden ist.",
+	indexingFailed: "Das Indizieren der Inhalte ist fehlgeschlagen: {detail}",
+	summingFailed: "Das Summieren der Aufrufe über 30 Tage ist fehlgeschlagen: {detail}",
+	storageUnavailable: "Die Speicher-Collections sind nicht verfügbar.",
+	cfNoAccount:
+		"Cloudflare hat kein Konto zurückgegeben. Prüfe die Konto-ID und dass das Token die Berechtigung Account → Account Analytics → Read hat.",
+	cfForbidden: "Cloudflare hat das Token abgelehnt (403). Es braucht Account → Account Analytics → Read.",
+	cfRateLimited:
+		"Cloudflare hat die Anfrage gedrosselt (429). Das dokumentierte Limit sind 300 GraphQL-Abfragen pro fünf Minuten.",
+	cfHttp: "Cloudflare hat HTTP {status} zurückgegeben",
+	cfZoneToken:
+		"Cloudflare hat das Konto abgelehnt (not authorized for that account). Das Token hat wahrscheinlich Zone Analytics Read; dieser Datensatz gilt fürs ganze Konto und braucht Account → Account Analytics → Read.",
+	cfUnreachable: "Cloudflare war nicht erreichbar: {detail}",
+	cfNotJson: "Cloudflare hat eine Antwort geliefert, die kein JSON ist",
+	cfTruncated: "Cloudflare hat die Antwort pro Pfad abgeschnitten; verringere die Anzahl der Pfade pro Durchlauf.",
+	cfTooManyGroups:
+		"Zu viele Gruppen für eine Anfrage: {paths} Pfade x {days} Tage übersteigen Cloudflares Seitengröße von {max} Gruppen. Verringere die Anzahl der Pfade pro Durchlauf.",
+	cfNoRetention: "Cloudflare hat für diesen Datensatz keine Aufbewahrungseinstellungen zurückgegeben",
+};
+
+const catalogues = { en, de } as const;
+
+export type Lang = keyof typeof catalogues;
+export type Params = Record<string, string | number>;
+
+/** A translatable failure, stored so the text follows the reader's language. */
+export interface Problem {
+	key: MessageKey;
+	params?: Params;
+}
+
+/** The catalogue for an admin locale: `de`, `de-AT` and `de-CH` read German. */
+export function langOf(locale: string | undefined): Lang {
+	return locale?.toLowerCase().split(/[-_]/)[0] === "de" ? "de" : "en";
+}
+
+export function t(lang: Lang, key: MessageKey, params: Params = {}): string {
+	const message = catalogues[lang][key];
+	const template =
+		typeof message === "string"
+			? message
+			: new Intl.PluralRules(lang).select(Number(params.count ?? 0)) === "one"
+				? message.one
+				: message.other;
+	return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+		name in params ? String(params[name]) : match,
+	);
+}
+
+/** A problem in the reader's language. */
+export function problemText(lang: Lang, problem: Problem): string {
+	if (problem.key === "notConfigured") {
+		const missing = String(problem.params?.missing ?? "").split(",").filter(Boolean);
+		const parts = missing.map((key) => (key === "cfApiToken" ? t(lang, "partApiToken") : t(lang, "partAccountId")));
+		return t(lang, "notConfigured", { parts: listOf(lang, parts) });
+	}
+	return t(lang, problem.key, problem.params);
+}
+
+function listOf(lang: Lang, parts: string[]): string {
+	try {
+		return new Intl.ListFormat(lang, { type: "conjunction" }).format(parts);
+	} catch {
+		return parts.join(", ");
+	}
+}
+
+/** A failed `Result` whose error text is the English message for logs. */
+export function failure(key: MessageKey, params?: Params): { ok: false; error: string; problem: Problem } {
+	return { ok: false, error: t("en", key, params), problem: { key, ...(params && { params }) } };
+}

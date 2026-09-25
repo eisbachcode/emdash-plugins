@@ -1,0 +1,149 @@
+{
+	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+
+	"slug": "analytics",
+	"publisher": "did:plc:iucwrgdd464ddkranaa6ux3l",
+
+	"license": "MIT",
+	"author": { "name": "Eisbachcode", "url": "https://eisbachcode.de", "email": "daniel@eisbachcode.de" },
+	"security": { "email": "daniel@eisbachcode.de" },
+	"repo": "https://github.com/eisbachcode/emdash-plugins",
+
+	// The only version check a user meets before installing. EmDash refuses
+	// an install whose host falls outside this range, so it carries a floor
+	// and deliberately no ceiling: EmDash ships a minor every 6-8 days, and
+	// a ceiling would block correct installs every week rather than catch a
+	// break. The manifest has no advisory "tested up to" field to express
+	// caution without blocking, so the tested range belongs in the README.
+	"release": {
+		"requires": { "env:emdash": ">=0.39.0" }
+	},
+	// Registry search indexes slug and description and has no keywords
+	// field, so every provider this plugin supports has to be named here.
+	"description": "Cloudflare Web Analytics on the EmDash dashboard and next to your content: visits, page views, top pages, referrers and countries, with per-entry performance mapped back to the entries that produced it.",
+	"keywords": ["analytics", "cloudflare", "dashboard", "widget", "content"],
+
+	// Trust contract.
+	//
+	// `content:read` and `schema:read` are the content join: the plugin
+	// asks the schema which collections are routable, asks the content API
+	// where each entry is published, and stores that mapping. `network:request`
+	// talks to exactly one pinned host.
+	//
+	// Deliberately absent: `content:write` (this plugin reports, it never
+	// edits), `users:read`, `email:send`. Nothing about your content leaves
+	// the site — the outbound request carries path strings and a site tag.
+	"capabilities": ["content:read", "schema:read", "network:request"],
+	"allowedHosts": ["api.cloudflare.com"],
+
+	"storage": {
+		// The fact table: one row per (day, path).
+		//
+		// Rows freeze once their day is closed and was read from an
+		// unsampled response, because after seven days Cloudflare can no
+		// longer reproduce them — see src/sync/window.ts.
+		"daily": { "indexes": ["date", "path"] },
+
+		// Site totals per day, read straight into the widget's chart.
+		"rollup": { "indexes": ["date"] },
+
+		// The path -> entry join, maintained forward from the content hooks.
+		//
+		// `views30` and `views7` are indexed because the content page sorts
+		// by them and storage rejects an orderBy on an undeclared index.
+		// Every index costs one more D1 row per write, which is why the
+		// sync does read-compare-write instead of blind upserts.
+		"entries": {
+			"indexes": ["path", "collection", "entryId", "translationGroup", "views30", "views7"]
+		}
+	},
+
+	"admin": {
+		// The only settings surface. The generated form is the
+		// platform-standard place for credentials and cannot be suppressed,
+		// so the plugin does not add a second one that would drift from it.
+		//
+		// `secret` is what triggers AES-GCM encryption with
+		// EMDASH_ENCRYPTION_KEY. Without that key set, saving throws
+		// PLUGIN_SETTING_ENCRYPTION_KEY_MISSING rather than storing
+		// plaintext — the widget says so in plain words.
+		"settingsSchema": {
+			"provider": {
+				"type": "select",
+				"label": "Data source",
+				"default": "cloudflare",
+				"options": [
+					{ "value": "cloudflare", "label": "Cloudflare Web Analytics" },
+					{ "value": "demo", "label": "Demo data (generated, not real traffic)" }
+				],
+				"description": "Demo data needs no account and fills the dashboard with generated numbers. Switching the data source clears the stored numbers."
+			},
+			"cfApiToken": {
+				"type": "secret",
+				"label": "Cloudflare API token",
+				"description": "Permission: Account → Account Analytics → Read. A Zone-level Analytics token authenticates but cannot read this dataset."
+			},
+			"cfAccountId": {
+				"type": "string",
+				"label": "Cloudflare account ID",
+				"description": "Found under Manage Account → Account Home in the Cloudflare dashboard."
+			},
+			"cfSiteTag": {
+				"type": "string",
+				"label": "Web Analytics site tag",
+				"description": "The site tag, not the beacon token: they are different values. In the Cloudflare dashboard it is the ID at the end of the site's Manage site link (web-analytics/edit/<site tag>). Leave empty and the widget lists the sites on the account that have traffic."
+			},
+			"hosts": {
+				"type": "string",
+				"label": "Hostnames to count",
+				"description": "Comma-separated. Leave empty to use the site URL and its www form. One site tag often also covers preview domains, which should not be counted."
+			},
+			"syncInterval": {
+				"type": "select",
+				"label": "Sync every",
+				"default": "*/15 * * * *",
+				"options": [
+					{ "value": "*/15 * * * *", "label": "15 minutes" },
+					{ "value": "*/30 * * * *", "label": "30 minutes" },
+					{ "value": "0 * * * *", "label": "Hour" },
+					{ "value": "0 */6 * * *", "label": "6 hours" }
+				]
+			},
+			"retentionDays": {
+				"type": "number",
+				"label": "Keep daily rows for",
+				"description": "Days. Cloudflare itself answers for 184 days; beyond that this store is the only copy.",
+				"default": 90,
+				"min": 7,
+				"max": 184
+			},
+			"chunkSize": {
+				"type": "number",
+				"label": "Paths per sync tick",
+				"description": "Lower this if the site runs on D1's free plan; every path written costs several D1 rows.",
+				"default": 36,
+				"min": 10,
+				"max": 36
+			}
+		},
+
+		"pages": [
+			{ "path": "/analytics", "label": "Analytics", "icon": "chart-line" },
+			{ "path": "/analytics/content", "label": "Analytics per entry", "icon": "chart" }
+		],
+		"widgets": [{ "id": "traffic", "title": "Traffic", "size": "half" }],
+
+		// Opens beside the entry editor, in every collection: the plugin
+		// cannot know at build time which collections a site routes, and
+		// an entry without a page says so in the panel.
+		//
+		// "Analytics" because manifest strings cannot be translated, and it
+		// reads the same in English and German; "Views" sat in English above
+		// a German panel.
+		"editorPanels": [{ "id": "views", "title": "Analytics", "route": "panel" }]
+	}
+
+	// No `hooks` and no `routes` here: the authored manifest is strict and
+	// rejects both. They live in src/plugin.ts and the build probes them
+	// into the wire manifest.
+}

@@ -1,0 +1,205 @@
+/**
+ * The beacon, injected at build time.
+ *
+ * Not a `page:fragments` hook, deliberately. The documented EmDash example
+ * for analytics uses that hook and calls `ctx.settings.get()` inside the
+ * handler, which is one uncached `SELECT` per render — and the handler can
+ * run three times on a content page with an SEO panel, because
+ * `resolveSeoPanelPage()` returns a fresh context object and the only memo
+ * is a `WeakMap` keyed on that object. A baseline anonymous `GET /` is ten
+ * queries; that example adds one to three of them forever, on every
+ * anonymous request. Four of the thirteen shipped templates also render no
+ * body placements at all, so `body:end` silently does nothing there.
+ *
+ * `injectScript("head-inline")` costs zero queries, emits verbatim into
+ * `<head>`, and is the stage every maintained Astro analytics integration
+ * uses. The plugin registers no page hook whatsoever, which is what keeps
+ * `pnpm query-counts` flat.
+ */
+
+export type BeaconProvider = "cloudflare";
+
+export interface AnalyticsBeaconOptions {
+	/** Only Cloudflare in v1; named so the option does not have to change later. */
+	provider?: BeaconProvider;
+	/**
+	 * The Cloudflare Web Analytics **site token** — the `token` value in the
+	 * beacon snippet.
+	 *
+	 * This is not the site tag. They are different values, and the CMS side
+	 * of this plugin needs the *tag*. Confirmed against the live API on
+	 * 2026-09-20: every site on the account reports two different values.
+	 */
+	token?: string;
+	/**
+	 * Cloudflare has auto-tracked soft navigations since 2026-08-20, which
+	 * is what an Astro site using `<ClientRouter />` wants. Set `false` to
+	 * opt out; leaving it unset keeps Cloudflare's own default.
+	 */
+	spa?: boolean;
+	/**
+	 * Gate the beacon behind a consent event.
+	 *
+	 * With this set the injected code registers a listener and appends the
+	 * vendor script only once the event fires (or immediately if the
+	 * documented flag says consent was already given). The vendor loader is
+	 * never injected behind an ungranted gate — a "cookieless" claim is not
+	 * a settled defence under TDDDG §25 in Germany, and this integration
+	 * provides the gate rather than an opinion.
+	 */
+	consent?: {
+		/** Event dispatched on `window` once analytics consent is granted. */
+		event: string;
+		/**
+		 * Name of a global boolean or a function on `window` that reports
+		 * consent already granted, checked once at load.
+		 */
+		grantedFlag?: string;
+	};
+	/**
+	 * Inject during `astro dev`. Off by default: a dev server reports under
+	 * the same site tag as production and would pollute real numbers with
+	 * localhost traffic.
+	 */
+	includeDev?: boolean;
+	/**
+	 * Environment variable that must equal `"true"` for the beacon to be
+	 * injected. Use it to keep preview deploys out of production numbers —
+	 * one Cloudflare site tag routinely covers `*.pages.dev` and
+	 * `*.workers.dev` hosts alongside the real domain.
+	 */
+	productionFlagEnv?: string;
+}
+
+const BEACON_SRC = "https://static.cloudflareinsights.com/beacon.min.js";
+
+/** The admin lives here and its pages have their own `<head>`. */
+const ADMIN_PREFIX = "/_emdash";
+
+/**
+ * Minimal shape of what Astro hands an integration, declared locally so
+ * this file needs no `astro` import at runtime. Astro's own types are
+ * structurally compatible.
+ */
+export interface AstroIntegrationLike {
+	name: string;
+	hooks: {
+		"astro:config:setup": (options: {
+			command: "dev" | "build" | "preview" | "sync";
+			injectScript: (stage: "head-inline" | "before-hydration" | "page" | "page-ssr", content: string) => void;
+			logger: { warn: (message: string) => void; info: (message: string) => void };
+		}) => void;
+	};
+}
+
+export function analyticsBeacon(options: AnalyticsBeaconOptions = {}): AstroIntegrationLike {
+	const provider = options.provider ?? "cloudflare";
+
+	return {
+		name: "@eisbachcode/emdash-plugin-analytics/astro",
+		hooks: {
+			"astro:config:setup": ({ command, injectScript, logger }) => {
+				if (provider !== "cloudflare") {
+					logger.warn(`Unknown analytics provider "${provider}"; no beacon injected.`);
+					return;
+				}
+
+				// A missing token is named out loud rather than no-op'd: a
+				// silent no-op here is a site that collects nothing and looks
+				// fine, which is the failure mode nobody notices for weeks.
+				if (!options.token) {
+					logger.warn(
+						"analyticsBeacon(): no `token` given, so no beacon was injected. Pass the Cloudflare Web Analytics site token (the `token` value in the beacon snippet, not the site tag).",
+					);
+					return;
+				}
+
+				if (command === "dev" && !options.includeDev) {
+					logger.info("analyticsBeacon(): skipping injection under `astro dev`. Pass includeDev: true to override.");
+					return;
+				}
+
+				if (options.productionFlagEnv) {
+					const value = readEnv(options.productionFlagEnv);
+					if (value !== "true") {
+						logger.info(
+							`analyticsBeacon(): ${options.productionFlagEnv} is not "true", so no beacon was injected.`,
+						);
+						return;
+					}
+				}
+
+				injectScript("head-inline", buildBeaconScript(options));
+			},
+		},
+	};
+}
+
+/**
+ * The injected source.
+ *
+ * Exported so it can be tested as a string: this is the one piece of this
+ * plugin that runs in a visitor's browser, and it must never throw there.
+ */
+export function buildBeaconScript(options: AnalyticsBeaconOptions): string {
+	const beaconConfig: Record<string, unknown> = { token: options.token };
+	if (options.spa === false) beaconConfig.spa = false;
+
+	// JSON.stringify twice: once for the attribute value Cloudflare parses,
+	// once so the result is a safe JavaScript string literal. `</script>`
+	// inside an inline script would otherwise end the element early.
+	const configLiteral = JSON.stringify(JSON.stringify(beaconConfig)).replace(/</g, "\\u003c");
+	const srcLiteral = JSON.stringify(BEACON_SRC);
+	const adminLiteral = JSON.stringify(ADMIN_PREFIX);
+
+	const inject = `
+		var s = document.createElement("script");
+		s.defer = true;
+		s.src = ${srcLiteral};
+		s.setAttribute("data-cf-beacon", ${configLiteral});
+		(document.head || document.documentElement).appendChild(s);`;
+
+	const gate = options.consent
+		? `
+		var granted = false;
+		try {
+			var flag = ${JSON.stringify(options.consent.grantedFlag ?? "")};
+			if (flag) {
+				var value = window[flag];
+				granted = typeof value === "function" ? !!value() : !!value;
+			}
+		} catch (e) {}
+		if (granted) { load(); }
+		else { window.addEventListener(${JSON.stringify(options.consent.event)}, load, { once: true }); }`
+		: `
+		load();`;
+
+	// Everything is wrapped: an exception thrown from an inline head script
+	// blocks nothing else on the page, but it does land in the console of
+	// every visitor, which is not a thing to ship.
+	return `(function () {
+	try {
+		var p = location.pathname;
+		// Editor sessions are not site traffic. The admin is an injected
+		// Astro page with its own <head>, so without this every dashboard
+		// visit would be counted and /_emdash paths would show up in the
+		// top-pages table.
+		if (p === ${adminLiteral} || p.indexOf(${adminLiteral} + "/") === 0) return;
+		var loaded = false;
+		function load() {
+			if (loaded) return;
+			loaded = true;${inject}
+		}${gate}
+	} catch (e) {}
+})();`;
+}
+
+function readEnv(name: string): string | undefined {
+	const meta = import.meta as unknown as { env?: Record<string, string | undefined> };
+	const fromMeta = meta.env?.[name];
+	if (fromMeta !== undefined) return fromMeta;
+	const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+	return proc?.env?.[name];
+}
+
+export default analyticsBeacon;
