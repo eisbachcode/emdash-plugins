@@ -41,7 +41,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: ./scripts/compat-matrix.sh 0.39.1 0.40.0
+      - run: ./scripts/compat-matrix.sh 0.39.0 0.39.1 0.40.0
 
   latest:
     name: current EmDash (informational)

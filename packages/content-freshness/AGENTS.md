@@ -8,7 +8,7 @@ Keep `emdash-plugin.jsonc` aligned with the runtime implementation, declare ever
 `emdash` is a peer with a floor and no ceiling (`>=0.39.0`, the same as
 `env:emdash` in the manifest); the dev dependency stays below the next
 major until the toolchain is moved on purpose. Built with
-`@emdash-cms/plugin-cli@0.12.0` and `@emdash-cms/plugin-test@0.2.1`;
+`@emdash-cms/plugin-cli@0.12.0` and `@emdash-cms/plugin-test@0.2.3` (EmDash 0.40.1);
 `scripts/compat-matrix.sh` at the repository root runs the suite against
 later EmDash releases. A plain `pnpm install` at the workspace root is
 enough.

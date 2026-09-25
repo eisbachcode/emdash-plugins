@@ -82,16 +82,18 @@ pnpm build
 
 | EmDash | Plugin test suite |
 | ------ | ----------------- |
+| 0.40.1 | 38 passed |
+| 0.40.0 | 38 passed |
 | 0.39.1 | 38 passed |
 | 0.39.0 | 38 passed |
 
-Declared range: `emdash >=0.39.0 <1.0.0`. The table covers **every released
-version inside it** — 0.39.0 and 0.39.1 are the only ones published, so this is
-the whole range rather than a sample. 0.39.0 is the floor because the plugin
-lists collections through `schema:read`, which earlier versions do not have.
+Declared range: `emdash >=0.39.0`, with no upper bound. The table covers
+**every EmDash release since the floor**. 0.39.0 is the floor because the
+plugin lists collections through `schema:read`, which earlier versions do not
+have.
 
 Reproduce with `scripts/compat-matrix.sh` from the repo root. Last run
-2026-09-24, when 0.39.1 was the latest EmDash release. A newer EmDash than the
+2026-09-25, when 0.40.1 was the latest EmDash release. A newer EmDash than the
 table's top row is untested rather than unsupported: nothing blocks the install,
 and this table is how you tell the difference.
 
