@@ -15,7 +15,7 @@ import type { PluginContext } from "emdash/plugin";
 
 import { langOf, t } from "../i18n.js";
 import { entriesStore, BIND_LIMIT } from "../store/access.js";
-import type { EntryRow } from "../store/rows.js";
+import { isPublished, type EntryRow } from "../store/rows.js";
 import type { SyncState } from "../sync/scheduler.js";
 import { actions, context, empty, link, stats, table, type AnalyticsBlock } from "./blocks.js";
 import { CONTENT_PATH } from "./content.js";
@@ -46,11 +46,11 @@ export async function loadPanel(
 	if (!entries || !entryId) return { ...base, current: null, members: [] };
 
 	const mine = (await entries.query({ where: { entryId }, limit: BIND_LIMIT })).items.map((item) => item.data);
-	const current = mine.find((row) => row.status === "published") ?? latest(mine);
+	const current = mine.find(isPublished) ?? latest(mine);
 	if (!current) return { ...base, current: null, members: [] };
 
 	const group = await entries.query({ where: { translationGroup: current.translationGroup }, limit: BIND_LIMIT });
-	const members = group.items.map((item) => item.data).filter((row) => row.status === "published");
+	const members = group.items.map((item) => item.data).filter(isPublished);
 	return { ...base, current, members: members.length > 0 ? members : [current] };
 }
 
