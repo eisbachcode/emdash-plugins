@@ -89,7 +89,7 @@ export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, 
 		hits.push({
 			rule: "overdue-schedule",
 			severity: "high",
-			params: { date: day(scheduledAt), kind: published ? "update" : "publish", status: entry.status },
+			params: { date: day(scheduledAt), kind: published ? "update" : "publish" },
 		});
 	}
 

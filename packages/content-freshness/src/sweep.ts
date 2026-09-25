@@ -3,9 +3,12 @@
  *
  * A sandboxed plugin gets ten subrequests per invocation and every `ctx`
  * call is one, so a run does one bounded slice and hands over to a
- * follow-up. A run costs two KV reads, one `content.list`, at most one
- * `putMany` and one `deleteMany`, one KV write and one schedule, plus the
- * collection list when a sweep starts.
+ * follow-up. An audit run costs two KV reads (settings, state), one
+ * `content.list`, one `dismissals.getMany`, at most one `putMany` and one
+ * `deleteMany`, one KV write and one schedule, plus the collection list when
+ * a sweep starts: nine at most. A cleanup run costs six, its log line
+ * included. `tests/budget.test.ts` counts every path; run it after adding a
+ * `ctx` call.
  *
  * When the last collection is done, the sweep removes every row it did not
  * write or confirm: entries that were trashed or deleted, and collections
@@ -41,7 +44,9 @@ const ABANDON_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 export async function runAudit(ctx: PluginContext, event: ChainEvent): Promise<void> {
 	const starts = event.name === AUDIT_TASK || event.name === AUDIT_NOW_TASK;
 	if (!starts && !isFollowUp(CHAIN, event.name)) return;
-	if (!ctx.content) return;
+	// Without `schema:read` the collection list comes back empty, and a sweep
+	// over no collections would go straight to cleaning up every row.
+	if (!ctx.content || !ctx.schema) return;
 
 	const [settings, state] = await Promise.all([readSettings(ctx), readState(ctx)]);
 	const now = new Date();

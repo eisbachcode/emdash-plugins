@@ -76,3 +76,19 @@ describe("cron task names", () => {
 		expect(warns).toHaveLength(0);
 	});
 });
+
+describe("a context without schema:read", () => {
+	it("starts no sweep, which would clean up every row", async () => {
+		const queried: string[] = [];
+		const ctx = {
+			kv: { get: async () => null, set: async () => {} },
+			content: {},
+			storage: { findings: { query: async () => (queried.push("query"), { items: [], hasMore: false }) } },
+			log: { debug() {}, info() {}, warn() {}, error() {} },
+		} as unknown as PluginContext;
+
+		await cronHandler()({ name: "audit", scheduledAt: "2026-09-20T03:00:00.000Z" }, ctx);
+
+		expect(queried).toEqual([]);
+	});
+});

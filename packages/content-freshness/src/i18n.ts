@@ -70,16 +70,13 @@ const en = {
 	notSaved: "Settings not saved. {reason}",
 	adminOnly: "Only an administrator can change these settings.",
 
-	hitOverduePublish: "Scheduled for {date} but still {status}.",
+	hitOverduePublish: "Scheduled to go live on {date}, but it never did.",
 	hitOverdueUpdate: "Changes scheduled for {date} were never published.",
 	hitMissingDescription: "Published without an SEO description.",
 	hitMissingFallback: "No SEO description; templates often show the “{field}” field instead.",
 	hitDescriptionLength: "SEO description is {length} characters; aim for {min}–{max}.",
 	hitStale: "Not touched since {since}.",
 	hitStaleDraft: "Draft untouched since {since}.",
-	statusDraft: "a draft",
-	statusScheduled: "scheduled",
-	statusOther: "{status}",
 } satisfies Record<string, Message>;
 
 export type MessageKey = keyof typeof en;
@@ -144,16 +141,13 @@ const de: Record<MessageKey, Message> = {
 	notSaved: "Einstellungen nicht gespeichert. {reason}",
 	adminOnly: "Nur Administratoren können diese Einstellungen ändern.",
 
-	hitOverduePublish: "Geplant für {date}, aber noch {status}.",
+	hitOverduePublish: "Sollte am {date} live gehen, ist es aber nie.",
 	hitOverdueUpdate: "Die für {date} geplanten Änderungen wurden nie veröffentlicht.",
 	hitMissingDescription: "Veröffentlicht ohne SEO-Beschreibung.",
 	hitMissingFallback: "Keine SEO-Beschreibung; Templates zeigen oft stattdessen das Feld „{field}“.",
 	hitDescriptionLength: "Die SEO-Beschreibung hat {length} Zeichen; empfohlen sind {min}–{max}.",
 	hitStale: "Seit {since} nicht bearbeitet.",
 	hitStaleDraft: "Entwurf seit {since} nicht bearbeitet.",
-	statusDraft: "ein Entwurf",
-	statusScheduled: "geplant",
-	statusOther: "{status}",
 };
 
 const catalogues = { en, de } as const;

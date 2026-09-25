@@ -108,7 +108,7 @@ const plugin = {
 				const ref = deletedEntry(event);
 				if (!ref) return;
 				try {
-					await forget(ctx, ref);
+					await forget(ctx, ref, ref.permanent);
 				} catch (error) {
 					ctx.log.warn(`Could not drop ${ref.collection}/${ref.id}: ${String(error)}`);
 				}
@@ -205,7 +205,8 @@ async function saveSettings(
 		};
 	}
 
-	const next = { settings: applyForm(stored.settings, values), scheduledAs: stored.scheduledAs };
+	const shown = collections.map((collection) => collection.slug);
+	const next = { settings: applyForm(stored.settings, values, shown), scheduledAs: stored.scheduledAs };
 	// Schedule first: an expression the scheduler rejects is never stored.
 	try {
 		await ensureScheduled(ctx, next);

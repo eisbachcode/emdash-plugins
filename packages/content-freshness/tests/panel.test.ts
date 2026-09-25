@@ -4,6 +4,7 @@ import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { PANEL_ID, renderPanel, SET_ASIDE_ACTION, UNDO_ACTION } from "../src/panel.js";
+import { bridgeCalls } from "./bridge-calls.js";
 import { finding, newHost, runSweep, undescribed } from "./host.js";
 
 let host: PluginRuntimeTestHost | undefined;
@@ -68,10 +69,64 @@ describe("the Freshness panel", () => {
 	});
 });
 
+describe("the panel on reload", () => {
+	it("writes nothing when the entry's findings have not changed", async () => {
+		// EmDash reloads an open panel after every save, autosaves included.
+		host = await newHost();
+		const runtime = host;
+		const entry = await undescribed(runtime, "posts", "reloaded");
+		await runtime.admin.loadEditorPanel(PANEL_ID, "posts", entry.id);
+
+		const calls = await bridgeCalls(() => runtime.admin.loadEditorPanel(PANEL_ID, "posts", entry.id));
+
+		expect(calls.filter((call) => /Put|Delete/.test(call))).toEqual([]);
+	});
+
+	it("drops a review that has run out", async () => {
+		host = await newHost();
+		const entry = await undescribed(host, "posts", "expired-review");
+		const id = `posts:${entry.id}`;
+		await host.fixtures.plugin.storage("dismissals", id, {
+			collection: "posts",
+			entryId: entry.id,
+			rules: { stale: { until: "2026-01-01T00:00:00.000Z", by: null, at: "2025-01-01T00:00:00.000Z" } },
+		});
+
+		await host.admin.loadEditorPanel(PANEL_ID, "posts", entry.id);
+
+		expect(await host.inspect.storage.get("dismissals", id)).toBeNull();
+	});
+});
+
+describe("what is set aside", () => {
+	async function ignoredEntry(slug: string) {
+		const runtime = await newHost();
+		const entry = await undescribed(runtime, "posts", slug);
+		await runtime.admin.actEditorPanel(PANEL_ID, "posts", entry.id, SET_ASIDE_ACTION, {
+			value: { rule: "missing-description" },
+		});
+		return { runtime, id: `posts:${entry.id}`, entry };
+	}
+
+	it("stays while the entry is only in the trash", async () => {
+		const { runtime, id, entry } = await ignoredEntry("trashed-keeps");
+		host = runtime;
+		await runtime.transport.invokeHook("content:afterDelete", { id: entry.id, collection: "posts", permanent: false });
+		expect(await runtime.inspect.storage.get("dismissals", id)).not.toBeNull();
+	});
+
+	it("goes when the entry is deleted for good", async () => {
+		const { runtime, id, entry } = await ignoredEntry("deleted-drops");
+		host = runtime;
+		await runtime.transport.invokeHook("content:afterDelete", { id: entry.id, collection: "posts", permanent: true });
+		expect(await runtime.inspect.storage.get("dismissals", id)).toBeNull();
+	});
+});
+
 describe("the panel's controls", () => {
 	it("offer no way to set aside a missed schedule", () => {
 		const { blocks } = renderPanel("en", {
-			active: [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish", status: "draft" } }],
+			active: [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish" } }],
 			setAside: [],
 		});
 		expect(sections(blocks)[0]?.accessory).toBeUndefined();

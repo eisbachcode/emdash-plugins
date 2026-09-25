@@ -123,21 +123,39 @@ function normalizeOverrides(source: unknown): Record<string, CollectionOverride>
 		if (!SLUG.test(slug) || typeof raw !== "object" || raw === null) continue;
 		const { staleMonths, draftMonths, skip } = raw as Record<string, unknown>;
 		const own: CollectionOverride = {};
-		if (isSet(staleMonths)) own.staleMonths = clampNumber(staleMonths, 0, 120, 0);
-		if (isSet(draftMonths)) own.draftMonths = clampNumber(draftMonths, 0, 120, 0);
+		const stale = months(staleMonths);
+		const draft = months(draftMonths);
+		if (stale !== undefined) own.staleMonths = stale;
+		if (draft !== undefined) own.draftMonths = draft;
 		if (skip === true) own.skip = true;
 		if (Object.keys(own).length > 0) overrides[slug] = own;
 	}
 	return overrides;
 }
 
-/** A form's empty number field arrives as `undefined`, `null` or `""`: no override. */
+/**
+ * An override's months, or nothing. A value that is not a number is dropped
+ * rather than clamped, because 0 would switch the rule off.
+ */
+function months(value: unknown): number | undefined {
+	if (!isSet(value)) return undefined;
+	const n = Number(value);
+	return Number.isFinite(n) ? clampNumber(n, 0, 120, 0) : undefined;
+}
+
+/** An empty number field: no override. */
 function isSet(value: unknown): boolean {
 	return value !== undefined && value !== null && !(typeof value === "string" && !value.trim());
 }
 
-/** `current` with the submitted form values applied. Unknown keys are ignored. */
-export function applyForm(current: Settings, values: Record<string, unknown>): Settings {
+/**
+ * `current` with the submitted form values applied. Unknown keys are ignored.
+ *
+ * `shown` names the collections whose fields the form carried. The admin
+ * drops an emptied number field from the submission altogether, so for those
+ * collections a missing month field means the admin cleared it.
+ */
+export function applyForm(current: Settings, values: Record<string, unknown>, shown: string[] = []): Settings {
 	const merged: Record<string, unknown> = { ...current };
 	for (const [key] of NUMBERS) {
 		if (values[key] !== undefined) merged[key] = values[key];
@@ -149,6 +167,11 @@ export function applyForm(current: Settings, values: Record<string, unknown>): S
 
 	const collections: Record<string, Record<string, unknown>> = {};
 	for (const [slug, own] of Object.entries(current.collections)) collections[slug] = { ...own };
+	for (const slug of shown) {
+		for (const setting of ["staleMonths", "draftMonths"] as const) {
+			if (!(collectionField(slug, setting) in values)) delete collections[slug]?.[setting];
+		}
+	}
 	for (const [key, value] of Object.entries(values)) {
 		const match = COLLECTION_FIELD.exec(key);
 		if (!match) continue;

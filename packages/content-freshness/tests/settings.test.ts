@@ -46,7 +46,19 @@ describe("settings per collection", () => {
 
 	it("fall back to the site's value when the field is emptied", () => {
 		const current = applyForm(DEFAULT_SETTINGS, { "collection:pages:staleMonths": 24 });
-		const next = applyForm(current, { "collection:pages:staleMonths": "" });
+		// The admin leaves an emptied number field out of the submission.
+		const next = applyForm(current, { "collection:pages:skip": false }, ["pages"]);
+		expect(thresholdsFor(next, "pages").staleMonths).toBe(DEFAULT_SETTINGS.staleMonths);
+		expect(next.collections).toEqual({});
+	});
+
+	it("keep the overrides of collections the form did not show", () => {
+		const current = applyForm(DEFAULT_SETTINGS, { "collection:archive:staleMonths": 36 });
+		expect(thresholdsFor(applyForm(current, {}, ["pages"]), "archive").staleMonths).toBe(36);
+	});
+
+	it("drop an override that is not a number instead of switching the rule off", () => {
+		const next = normalizeSettings({ collections: { pages: { staleMonths: "abc", draftMonths: Number.NaN } } });
 		expect(thresholdsFor(next, "pages").staleMonths).toBe(DEFAULT_SETTINGS.staleMonths);
 		expect(next.collections).toEqual({});
 	});

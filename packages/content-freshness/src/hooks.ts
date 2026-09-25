@@ -20,9 +20,11 @@ export function changedEntry(event: unknown): EntryRef | null {
 	return typeof id === "string" ? { collection, id } : null;
 }
 
-/** The entry a delete event is about: `{ id, collection }`. */
-export function deletedEntry(event: unknown): EntryRef | null {
+/** The entry a delete event is about, `{ id, collection, permanent }`, and whether it is gone for good. */
+export function deletedEntry(event: unknown): (EntryRef & { permanent: boolean }) | null {
 	if (typeof event !== "object" || event === null) return null;
-	const { id, collection } = event as { id?: unknown; collection?: unknown };
-	return typeof id === "string" && typeof collection === "string" ? { collection, id } : null;
+	const { id, collection, permanent } = event as { id?: unknown; collection?: unknown; permanent?: unknown };
+	return typeof id === "string" && typeof collection === "string"
+		? { collection, id, permanent: permanent === true }
+		: null;
 }

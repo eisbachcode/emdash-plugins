@@ -134,11 +134,7 @@ export async function buildWidget(
 	lang: Lang,
 	userId?: string,
 ): Promise<BlockResponse> {
-	const [counts, collections, yours] = await Promise.all([
-		countFindings(ctx),
-		listCollections(ctx),
-		userId ? ctx.storage.findings.count({ authorId: userId }) : Promise.resolve(0),
-	]);
+	const [counts, collections] = await Promise.all([countFindings(ctx), listCollections(ctx)]);
 	const banner = urlPatternBanner(lang, collections, false);
 
 	if (counts.total === 0) {
@@ -156,6 +152,7 @@ export async function buildWidget(
 		};
 	}
 
+	const yours = userId ? await ctx.storage.findings.count({ authorId: userId }) : 0;
 	return {
 		blocks: [
 			...banner,
@@ -257,11 +254,17 @@ export async function buildReportPage(
 	lang: Lang,
 	view: ReportView = FIRST_VIEW,
 ): Promise<BlockResponse> {
-	const [collections, counts, { page, later }] = await Promise.all([
+	const [collections, counts, requested] = await Promise.all([
 		listCollections(ctx),
 		countFindings(ctx),
 		findingsPage(ctx, view),
 	]);
+	// A filter can name a collection deleted since the page was shown. The
+	// select would then have no option for it, and the host rejects the whole
+	// response, so the report falls back to all collections.
+	const known = view.collection === null || collections.some((item) => item.slug === view.collection);
+	if (!known) view = { ...view, collection: null, cursor: null };
+	const { page, later } = known ? requested : await findingsPage(ctx, view);
 	const banner = urlPatternBanner(lang, collections, true);
 	const auditNow: ButtonElement = {
 		type: "button",

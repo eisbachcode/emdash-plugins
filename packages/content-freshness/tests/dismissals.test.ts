@@ -6,7 +6,7 @@ import { DEFAULT_THRESHOLDS, type Hit } from "../src/rules.js";
 const NOW = new Date("2026-09-25T12:00:00.000Z");
 const stale: Hit = { rule: "stale", severity: "medium", params: { since: "2025-01-01" } };
 const missing: Hit = { rule: "missing-description", severity: "medium", params: {} };
-const overdue: Hit = { rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish", status: "draft" } };
+const overdue: Hit = { rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish" } };
 
 function dismissed(rules: EntryDismissals["rules"]): EntryDismissals {
 	return { collection: "pages", entryId: "01A", rules };

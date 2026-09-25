@@ -76,6 +76,31 @@ export function evaluateEntries(
 	return result;
 }
 
+/**
+ * Store one entry's result, writing only when it differs from `existing`.
+ * EmDash reloads an open editor panel after every save, autosaves
+ * included, and each reload checks the entry: without the comparison every
+ * keystroke that reached a save would also write a row. `seenIn` is left out
+ * of the comparison; a row a sweep has not reached yet gets its own write
+ * when it does.
+ */
+export async function storeOne(ctx: PluginContext, evaluated: Evaluated, existing: EntryFindings | null): Promise<void> {
+	const [write] = evaluated.writes;
+	const [clear] = evaluated.clears;
+	if (write) {
+		if (existing && sameFinding(existing, write.data)) return;
+		await ctx.storage.findings.put(write.id, write.data);
+	} else if (clear && existing) {
+		await ctx.storage.findings.delete(clear);
+	}
+}
+
+function sameFinding(a: EntryFindings, b: EntryFindings): boolean {
+	const { seenIn: _a, ...left } = a;
+	const { seenIn: _b, ...right } = b;
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
 /** One `putMany` and one `deleteMany` at most, whatever the number of entries. */
 export async function store(ctx: PluginContext, evaluated: Evaluated): Promise<void> {
 	if (evaluated.writes.length > 0) await ctx.storage.findings.putMany(evaluated.writes);
@@ -87,7 +112,13 @@ export interface EntryRef {
 	id: string;
 }
 
-/** Remove an entry's row: it was trashed or deleted. */
-export async function forget(ctx: PluginContext, ref: EntryRef): Promise<void> {
-	await ctx.storage.findings.delete(findingId(ref.collection, ref.id));
+/**
+ * Remove an entry's row: it was trashed or deleted. What an editor set aside
+ * goes too once the entry is deleted for good; a trashed entry keeps it, so
+ * a restore brings the entry back as it was.
+ */
+export async function forget(ctx: PluginContext, ref: EntryRef, permanent = false): Promise<void> {
+	const id = findingId(ref.collection, ref.id);
+	await ctx.storage.findings.delete(id);
+	if (permanent) await ctx.storage.dismissals.delete(id);
 }

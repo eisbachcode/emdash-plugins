@@ -1,4 +1,5 @@
 import type { ActionsBlock, Block, ButtonElement, ContextBlock, FormBlock, SectionBlock, SelectElement } from "@emdash-cms/blocks";
+import { validateBlocks } from "@emdash-cms/blocks/server";
 import type { PluginContext } from "emdash/plugin";
 import { describe, expect, it } from "vitest";
 
@@ -110,6 +111,15 @@ describe("filters and paging", () => {
 		const { blocks } = await buildReportPage(fakeContext([row("about", "en")], true), STATE, "en", filtered);
 		const next = buttons(blocks).find((button) => button.action_id === VIEW_ACTION);
 		expect(viewFrom(next?.value)).toEqual({ ...filtered, cursor: "next-page" });
+	});
+
+	it("fall back to all collections when the filtered one is gone", async () => {
+		// The host rejects a select whose initial value matches no option.
+		const gone: ReportView = { collection: "events", rank: null, cursor: "stale" };
+		const { blocks } = await buildReportPage(fakeContext([row("about", "en")]), STATE, "en", gone);
+		expect(validateBlocks(blocks).valid).toBe(true);
+		expect(viewFrom(selects(blocks)[0]?.initial_value)).toEqual({ collection: null, rank: null, cursor: null });
+		expect(sections(blocks)).toHaveLength(1);
 	});
 
 	it("read a view it did not write as the first page", () => {

@@ -31,7 +31,7 @@ function row(entryId: string, rank: number): EntryFindings {
 		rank,
 		hits:
 			rank === 0
-				? [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish", status: "draft" } }]
+				? [{ rule: "overdue-schedule", severity: "high", params: { date: "2026-09-01", kind: "publish" } }]
 				: [{ rule: "stale-draft", severity: "low", params: { since: "2025-01-01" } }],
 		entryUpdatedAt: "2025-01-01T00:00:00.000Z",
 		seenIn: "2026-09-25T04:00:00.000Z",

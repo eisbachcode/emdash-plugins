@@ -159,6 +159,13 @@ describe("admin requests", () => {
 		return runtime;
 	}
 
+	it("an empty dashboard spends nothing on counting the viewer's entries", async () => {
+		host = await newHost();
+		const runtime = host;
+		const calls = await bridgeCalls(() => runtime.admin.loadWidget("summary"));
+		expect(calls.filter((call) => call === "storageCount")).toHaveLength(3);
+	});
+
 	it("the first dashboard view, which also schedules the audit", async () => {
 		host = await siteWithFindings();
 		const runtime = host;
