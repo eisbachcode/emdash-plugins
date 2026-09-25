@@ -54,7 +54,7 @@
 	"devDependencies": {
 		"@eisbachcode/emdash-plugin-shared": "workspace:*",
 		"@emdash-cms/plugin-cli": "0.12.0",
-		"@emdash-cms/plugin-test": "0.2.1",
+		"@emdash-cms/plugin-test": "0.2.3",
 		"emdash": ">=0.39.0 <1.0.0",
 		"typescript": "^5.9.0",
 		"vitest": "^4.1.0"
