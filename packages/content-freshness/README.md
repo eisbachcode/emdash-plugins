@@ -88,10 +88,10 @@ pnpm build
 
 | EmDash | Plugin test suite |
 | ------ | ----------------- |
-| 0.40.1 | 38 passed |
-| 0.40.0 | 38 passed |
-| 0.39.1 | 38 passed |
-| 0.39.0 | 38 passed |
+| 0.40.1 | 65 passed |
+| 0.40.0 | 65 passed |
+| 0.39.1 | 65 passed |
+| 0.39.0 | 65 passed |
 
 Declared range: `emdash >=0.39.0`, with no upper bound. The table covers
 **every EmDash release since the floor**. 0.39.0 is the floor because the
