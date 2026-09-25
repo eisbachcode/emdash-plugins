@@ -44,9 +44,10 @@
 		"typecheck": "tsc --noEmit",
 		"test": "emdash-plugin validate && vitest run",
 		"bundle": "emdash-plugin bundle",
-		"login": "emdash-plugin login",
-		"publish": "emdash-plugin publish",
+		"registry:login": "emdash-plugin login",
+		"registry:publish": "emdash-plugin publish",
 		"release:setup": "emdash-plugin release setup",
+		"prepublishOnly": "pnpm run build",
 		"build:astro": "tsdown"
 	},
 	"engines": {

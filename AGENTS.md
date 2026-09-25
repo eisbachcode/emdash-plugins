@@ -49,6 +49,12 @@ pnpm build
 ## Releases
 
 Versions come from changesets: add one with `pnpm changeset` for every
-change to a published package, written for someone upgrading. The workspace
+change to a published package, written for someone upgrading.
+
+Never name a package script `publish`, `version` or `prepare`: npm and pnpm
+run scripts with those names on their own during a publish or a version
+bump. `emdash-plugin init` generates `"publish": "emdash-plugin publish"`,
+which would push to the EmDash registry after every `npm publish`; here it
+is `registry:publish`, and `prepublishOnly` builds before any publish. The workspace
 installs with pnpm 11; `allowBuilds` in `pnpm-workspace.yaml` lets esbuild
 and workerd run their install scripts, which the test host needs.
