@@ -20,11 +20,29 @@ ending in `_excerpt`, `_description`, `_summary` or `_subheadline` therefore
 gets the lower priority, and the finding names the field. A site whose
 templates always render a description can switch the check off.
 
-The report holds one row per entry that needs attention, most urgent first.
-It shows the current state, not a history: an entry is checked again when it
-is published, unpublished, scheduled, unscheduled or restored, and leaves the
-report as soon as it is trashed or deleted. Other edits show up with the next
-audit, which also removes rows of entries that no longer exist.
+## Where the findings show up
+
+- **The report** (Content freshness in the admin menu) lists every entry that
+  needs attention, most urgent first, 25 per page, filtered by collection and
+  priority. Each entry links straight into its editor.
+- **The Freshness panel** in the entry editor shows that entry's findings. It
+  checks the entry each time it opens, and it is where a finding is set aside:
+  **Mark as reviewed** holds a stale entry or a forgotten draft back until its
+  threshold runs out again, so a page that is still correct needs no edit to
+  quiet the report. **Ignore** holds a description finding back for good. A
+  missed schedule cannot be set aside. **Undo** brings a finding back.
+  Authors see the panel on their own entries; the report is for editors and
+  above.
+- **The dashboard widget** counts the entries by priority and says how many
+  of them are yours.
+
+The report shows the current state, not a history. An entry is checked again
+when it is published, unpublished, scheduled, unscheduled or restored, and
+whenever its panel opens; it leaves the report as soon as it is trashed or
+deleted. Other edits show up with the next audit, which also removes the rows
+of entries that no longer exist.
+
+The admin follows the administrator's language: English and German.
 
 Each run audits one page of one collection, and an audit carries on in
 follow-up runs until it is done, one per firing of the site's cron trigger,
@@ -40,7 +58,9 @@ site whose routes differ, and nothing else says so.
 
 `content:read` and `schema:read`, nothing else. Every rule is computed from
 fields the content and schema APIs already return, so there is **no network
-access** and no `content:write` — the plugin reports, it never edits an entry.
+access** and no `content:write`: the plugin reports, it never edits an entry.
+What it stores (findings and the findings you set aside) stays in its own
+plugin storage.
 
 ## Install
 
@@ -74,6 +94,7 @@ entry. Without one, the audit is scheduled and never runs.
 | Report entries without an SEO description | on | Off for a site whose templates always render a description. The length check still runs. |
 | Entries per run | 50 | At most 98: D1 binds at most 100 parameters per statement, and storage adds two of its own. The number of calls per run does not grow with it. |
 | Schedule | `0 4 * * *` | A cron expression, in UTC. One the scheduler rejects is not saved. |
+| Per collection | none | Months for stale entries and forgotten drafts of one collection (empty: the site's value, 0: never), or leave the collection out of the audit. |
 
 ## Develop
 
