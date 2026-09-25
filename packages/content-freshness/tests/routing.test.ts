@@ -3,6 +3,7 @@ import type { PluginContext } from "emdash/plugin";
 import { describe, expect, it } from "vitest";
 
 import { buildReportPage, buildWidget } from "../src/report.js";
+import { DEFAULT_SETTINGS } from "../src/settings.js";
 import type { State } from "../src/state.js";
 
 /**
@@ -18,7 +19,7 @@ const STATE: State = { sweep: null, lastFinishedAt: null };
 
 function fakeContext(collections: Collection[]) {
 	return {
-		schema: { listCollections: async () => collections },
+		schema: { listCollections: async () => collections.map((item) => ({ fields: [], supports: [], ...item })) },
 		storage: {
 			findings: {
 				count: async () => 0,
@@ -40,7 +41,7 @@ describe("the URL pattern warning", () => {
 			{ slug: "authors", label: "Authors", routable: false, urlPattern: null },
 		]);
 
-		const { blocks } = await buildReportPage(ctx, STATE, "en");
+		const { blocks } = await buildReportPage(ctx, STATE, DEFAULT_SETTINGS, "en");
 		const [banner] = banners(blocks);
 		expect(banner?.title).toContain("Posts");
 		expect(banner?.title).not.toContain("Pages");
@@ -55,7 +56,7 @@ describe("the URL pattern warning", () => {
 
 	it("stays out of the way when every routable collection has a pattern", async () => {
 		const ctx = fakeContext([{ slug: "posts", label: "Posts", routable: true, urlPattern: "/blog/{slug}" }]);
-		expect(banners((await buildReportPage(ctx, STATE, "en")).blocks)).toHaveLength(0);
+		expect(banners((await buildReportPage(ctx, STATE, DEFAULT_SETTINGS, "en")).blocks)).toHaveLength(0);
 		expect(banners((await buildWidget(ctx, STATE, "en")).blocks)).toHaveLength(0);
 	});
 });

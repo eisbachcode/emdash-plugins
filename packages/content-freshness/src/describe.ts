@@ -23,6 +23,10 @@ export function describeHit(lang: Lang, hit: Hit): string {
 			return t(lang, "hitStale", params);
 		case "stale-draft":
 			return t(lang, "hitStaleDraft", params);
+		case "unpublished-changes":
+			return t(lang, "hitUnpublishedChanges", params);
+		case "expired":
+			return t(lang, "hitExpired", params);
 	}
 }
 

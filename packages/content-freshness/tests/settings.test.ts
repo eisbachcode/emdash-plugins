@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { applyForm, DEFAULT_SETTINGS, normalizeSettings, thresholdsFor } from "../src/settings.js";
+import {
+	applyForm,
+	DEFAULT_SETTINGS,
+	expiryFor,
+	normalizeSettings,
+	suggestedExpiry,
+	thresholdsFor,
+} from "../src/settings.js";
 
 describe("normalizeSettings", () => {
 	it("returns defaults for nothing stored", () => {
@@ -70,5 +77,34 @@ describe("settings per collection", () => {
 
 	it("drop what is not a collection slug", () => {
 		expect(normalizeSettings({ collections: { "Bad Slug": { skip: true }, pages: "nonsense" } }).collections).toEqual({});
+	});
+});
+
+describe("the expiry field of a collection", () => {
+	const dates = [
+		{ slug: "starts_on", label: "Starts" },
+		{ slug: "valid_until", label: "Valid until" },
+	];
+
+	it("is checked only once the settings choose it", () => {
+		// Opt-in: a site that keeps past events online would otherwise get a
+		// finding for each of them on install.
+		expect(expiryFor(DEFAULT_SETTINGS, "offers", dates)).toBeNull();
+		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "valid_until" });
+		expect(expiryFor(chosen, "offers", dates)).toEqual({ slug: "valid_until", label: "Valid until" });
+	});
+
+	it("is suggested until someone decides, and no longer once they chose never", () => {
+		expect(suggestedExpiry(DEFAULT_SETTINGS, "offers", dates)?.slug).toBe("valid_until");
+		const off = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "off" });
+		expect(suggestedExpiry(off, "offers", dates)).toBeNull();
+		expect(expiryFor(off, "offers", dates)).toBeNull();
+	});
+
+	it("goes back to undecided for unset, and checks nothing for a field the collection no longer has", () => {
+		const chosen = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "starts_on" });
+		expect(applyForm(chosen, { "collection:offers:expiryField": "unset" }).collections).toEqual({});
+		const gone = applyForm(DEFAULT_SETTINGS, { "collection:offers:expiryField": "removed_field" });
+		expect(expiryFor(gone, "offers", dates)).toBeNull();
 	});
 });

@@ -14,7 +14,7 @@ import { clampNumber } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext } from "emdash/plugin";
 
 import { ID_BATCH } from "./ids.js";
-import { DEFAULT_THRESHOLDS, type Thresholds } from "./rules.js";
+import { DEFAULT_THRESHOLDS, detectExpiryField, type EntryContext, type ExpiryField, type Thresholds } from "./rules.js";
 
 export const SETTINGS_KEY = "settings";
 
@@ -25,6 +25,11 @@ export const SETTINGS_KEY = "settings";
 export interface CollectionOverride {
 	staleMonths?: number;
 	draftMonths?: number;
+	/**
+	 * The `datetime` field entries expire after, or `"off"` for never. Unset,
+	 * no expiry is checked and the report suggests a field whose name fits.
+	 */
+	expiryField?: string;
 	/** Leave the collection out of the audit altogether. */
 	skip?: boolean;
 }
@@ -47,7 +52,12 @@ export const DEFAULT_SETTINGS: Settings = {
 const SLUG = /^[a-z][a-z0-9_]*$/;
 
 /** A form field for one collection's setting: `collection:<slug>:<setting>`. */
-const COLLECTION_FIELD = /^collection:([a-z][a-z0-9_]*):(staleMonths|draftMonths|skip)$/;
+const COLLECTION_FIELD = /^collection:([a-z][a-z0-9_]*):(staleMonths|draftMonths|expiryField|skip)$/;
+
+/** The expiry select's value for "not chosen yet": nothing checked, a field suggested. */
+export const EXPIRY_UNSET = "unset";
+/** The expiry select's value for "entries of this collection never expire": nothing checked or suggested. */
+export const EXPIRY_OFF = "off";
 
 export function collectionField(slug: string, setting: keyof CollectionOverride): string {
 	return `collection:${slug}:${setting}`;
@@ -62,11 +72,42 @@ export function thresholdsFor(settings: Settings, collection: string): Threshold
 		descriptionMin: settings.descriptionMin,
 		descriptionMax: settings.descriptionMax,
 		reportMissingDescriptions: settings.reportMissingDescriptions,
+		pendingDays: settings.pendingDays,
 		skip: own.skip === true,
 	};
 }
 
-type NumberKey = "pageSize" | "staleMonths" | "draftMonths" | "descriptionMin" | "descriptionMax";
+/**
+ * The field `collection`'s entries expire after, when the settings chose one
+ * the collection still has. Expiry is opt-in: a site that keeps past events
+ * online as an archive would otherwise get a finding for every one of them
+ * the moment the plugin is installed. `fields` are the collection's
+ * `datetime` fields.
+ */
+export function expiryFor(settings: Settings, collection: string, fields: ExpiryField[]): ExpiryField | null {
+	const chosen = settings.collections[collection]?.expiryField;
+	return fields.find((field) => field.slug === chosen) ?? null;
+}
+
+/** What the rules need to know about `collection`, from what a sweep or a check read about it. */
+export function contextFor(
+	settings: Settings,
+	collection: string,
+	info: { dateFields: ExpiryField[]; revisions: boolean } | undefined,
+): EntryContext {
+	return {
+		expiry: expiryFor(settings, collection, info?.dateFields ?? []),
+		revisions: info?.revisions ?? false,
+	};
+}
+
+/** A field to suggest for a collection whose expiry nobody has decided on yet. */
+export function suggestedExpiry(settings: Settings, collection: string, fields: ExpiryField[]): ExpiryField | null {
+	if (settings.collections[collection]?.expiryField !== undefined) return null;
+	return detectExpiryField(fields);
+}
+
+type NumberKey = "pageSize" | "staleMonths" | "draftMonths" | "descriptionMin" | "descriptionMax" | "pendingDays";
 
 const NUMBERS: Array<[NumberKey, number, number]> = [
 	["pageSize", 1, ID_BATCH],
@@ -74,6 +115,7 @@ const NUMBERS: Array<[NumberKey, number, number]> = [
 	["draftMonths", 1, 120],
 	["descriptionMin", 0, 300],
 	["descriptionMax", 0, 300],
+	["pendingDays", 1, 365],
 ];
 
 export interface StoredSettings {
@@ -121,13 +163,16 @@ function normalizeOverrides(source: unknown): Record<string, CollectionOverride>
 	const overrides: Record<string, CollectionOverride> = {};
 	for (const [slug, raw] of Object.entries(source as Record<string, unknown>)) {
 		if (!SLUG.test(slug) || typeof raw !== "object" || raw === null) continue;
-		const { staleMonths, draftMonths, skip } = raw as Record<string, unknown>;
+		const { staleMonths, draftMonths, expiryField, skip } = raw as Record<string, unknown>;
 		const own: CollectionOverride = {};
 		const stale = months(staleMonths);
 		const draft = months(draftMonths);
 		if (stale !== undefined) own.staleMonths = stale;
 		if (draft !== undefined) own.draftMonths = draft;
 		if (skip === true) own.skip = true;
+		if (typeof expiryField === "string" && (expiryField === EXPIRY_OFF || SLUG.test(expiryField))) {
+			own.expiryField = expiryField;
+		}
 		if (Object.keys(own).length > 0) overrides[slug] = own;
 	}
 	return overrides;
@@ -178,7 +223,10 @@ export function applyForm(current: Settings, values: Record<string, unknown>, sh
 		const [, slug, setting] = match as unknown as [string, string, keyof CollectionOverride];
 		const own = (collections[slug] ??= {});
 		if (setting === "skip") own.skip = value === true;
-		else if (isSet(value)) own[setting] = value;
+		else if (setting === "expiryField") {
+			if (typeof value === "string" && value !== EXPIRY_UNSET) own.expiryField = value;
+			else delete own.expiryField;
+		} else if (isSet(value)) own[setting] = value;
 		else delete own[setting];
 	}
 	merged.collections = collections;

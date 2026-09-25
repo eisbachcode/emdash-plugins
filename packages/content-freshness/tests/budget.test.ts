@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AUDIT_NOW_ACTION, SAVE_SETTINGS_ACTION, VIEW_ACTION } from "../src/report.js";
 import { SETTINGS_KEY } from "../src/settings.js";
-import { STATE_KEY, type State } from "../src/state.js";
+import { STATE_KEY, SWEEP_VERSION, type State } from "../src/state.js";
 import { bridgeCalls } from "./bridge-calls.js";
 import { finding, newHost, undescribed } from "./host.js";
 
@@ -98,11 +98,13 @@ describe("cron runs", () => {
 			await runtime.fixtures.plugin.storage("findings", `posts:OLD${i}`, staleRow(`OLD${i}`));
 		}
 		const sweep = {
+			version: SWEEP_VERSION,
 			startedAt: new Date().toISOString(),
 			collections: ["posts"],
 			index: 1,
 			cursor: null,
 			phase: "cleanup",
+			info: {},
 		};
 		await runtime.fixtures.plugin.kv(STATE_KEY, { sweep, lastFinishedAt: null, scheduledAs: null });
 

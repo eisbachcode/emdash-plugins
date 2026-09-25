@@ -12,7 +12,7 @@ import type { PluginContext } from "emdash/plugin";
 
 import { partition, type EntryDismissals } from "./dismissals.js";
 import { findingId } from "./ids.js";
-import { evaluateEntry, worstRank, type Hit, type Thresholds } from "./rules.js";
+import { evaluateEntry, NO_CONTEXT, worstRank, type EntryContext, type Hit, type Thresholds } from "./rules.js";
 
 
 export interface EntryFindings {
@@ -48,11 +48,12 @@ export function evaluateEntries(
 	now: Date,
 	seenIn: string,
 	dismissals: Map<string, EntryDismissals> = new Map(),
+	context: EntryContext = NO_CONTEXT,
 ): Evaluated {
 	const result: Evaluated = { writes: [], clears: [] };
 	for (const entry of entries) {
 		const id = findingId(collection, entry.id);
-		const hits = partition(evaluateEntry(entry, thresholds, now), dismissals.get(id), now).active;
+		const hits = partition(evaluateEntry(entry, thresholds, now, context), dismissals.get(id), now).active;
 		if (hits.length === 0) {
 			result.clears.push(id);
 			continue;

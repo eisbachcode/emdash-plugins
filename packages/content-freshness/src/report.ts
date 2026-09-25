@@ -26,8 +26,15 @@ import type { EntryFindings } from "./findings.js";
 import { ID_BATCH } from "./ids.js";
 import { t, type Lang, type MessageKey } from "./i18n.js";
 import { collectionsWithoutUrlPattern } from "./routing.js";
-import { RANK } from "./rules.js";
-import { collectionField, type Settings } from "./settings.js";
+import { datetimeFields, detectExpiryField, RANK } from "./rules.js";
+import {
+	collectionField,
+	EXPIRY_OFF,
+	EXPIRY_UNSET,
+	suggestedExpiry,
+	thresholdsFor,
+	type Settings,
+} from "./settings.js";
 import type { State } from "./state.js";
 
 export const VIEW_ACTION = "report_view";
@@ -251,6 +258,7 @@ function entryBlocks(lang: Lang, row: EntryFindings, collectionLabel: string, wi
 export async function buildReportPage(
 	ctx: PluginContext,
 	state: State,
+	settings: Settings,
 	lang: Lang,
 	view: ReportView = FIRST_VIEW,
 ): Promise<BlockResponse> {
@@ -265,7 +273,7 @@ export async function buildReportPage(
 	const known = view.collection === null || collections.some((item) => item.slug === view.collection);
 	if (!known) view = { ...view, collection: null, cursor: null };
 	const { page, later } = known ? requested : await findingsPage(ctx, view);
-	const banner = urlPatternBanner(lang, collections, true);
+	const banner = [...urlPatternBanner(lang, collections, true), ...expirySuggestion(lang, settings, collections)];
 	const auditNow: ButtonElement = {
 		type: "button",
 		action_id: AUDIT_NOW_ACTION,
@@ -310,6 +318,57 @@ export async function buildReportPage(
 	};
 }
 
+/** The choice of expiry field, for a collection that has `datetime` fields at all. */
+function expirySelect(settings: Settings, lang: Lang, item: PluginCollectionInfo, collection: string): FormField[] {
+	const dateFields = datetimeFields(item.fields);
+	if (dateFields.length === 0) return [];
+	const suggested = detectExpiryField(dateFields);
+	const chosen = settings.collections[item.slug]?.expiryField;
+	const valid = chosen === EXPIRY_OFF || dateFields.some((field) => field.slug === chosen);
+	return [
+		{
+			type: "select",
+			action_id: collectionField(item.slug, "expiryField"),
+			label: t(lang, "collectionExpiry", { collection }),
+			options: [
+				{ label: t(lang, "expiryUnset"), value: EXPIRY_UNSET },
+				...dateFields.map((field) => ({
+					label: field.slug === suggested?.slug ? t(lang, "expirySuggested", { field: field.label }) : field.label,
+					value: field.slug,
+				})),
+				{ label: t(lang, "expiryOff"), value: EXPIRY_OFF },
+			],
+			initial_value: valid && chosen ? chosen : EXPIRY_UNSET,
+		},
+	];
+}
+
+/**
+ * A pointer to the settings for collections that have a field named like an
+ * expiry date but no decision about it yet. Expiry is opt-in, so without this
+ * nobody would learn the rule exists.
+ */
+function expirySuggestion(lang: Lang, settings: Settings, collections: PluginCollectionInfo[]): Block[] {
+	const suggestions = collections.flatMap((item) => {
+		if (thresholdsFor(settings, item.slug).skip) return [];
+		const field = suggestedExpiry(settings, item.slug, datetimeFields(item.fields));
+		return field ? [`${item.label || item.slug} (${field.label})`] : [];
+	});
+	if (suggestions.length === 0) return [];
+	return [
+		{
+			type: "banner",
+			variant: "default",
+			title: t(lang, "expirySuggestTitle", { names: suggestions.join(", ") }),
+			description: t(lang, "expirySuggestText"),
+		},
+		{
+			type: "actions",
+			elements: [{ type: "link", label: t(lang, "openSettings"), target: { kind: "plugin-page", path: "/settings" } }],
+		},
+	];
+}
+
 function collectionFields(settings: Settings, lang: Lang, collections: PluginCollectionInfo[]): FormField[] {
 	return collections.flatMap((item): FormField[] => {
 		const own = settings.collections[item.slug] ?? {};
@@ -331,6 +390,7 @@ function collectionFields(settings: Settings, lang: Lang, collections: PluginCol
 				max: 120,
 				...(own.draftMonths !== undefined ? { initial_value: own.draftMonths } : {}),
 			},
+			...expirySelect(settings, lang, item, collection),
 			{
 				type: "toggle",
 				action_id: collectionField(item.slug, "skip"),
@@ -380,6 +440,14 @@ export function buildSettingsPage(
 				min: 0,
 				max: 300,
 				initial_value: settings.descriptionMax,
+			},
+			{
+				type: "number_input",
+				action_id: "pendingDays",
+				label: t(lang, "pendingDays"),
+				min: 1,
+				max: 365,
+				initial_value: settings.pendingDays,
 			},
 			{
 				type: "toggle",

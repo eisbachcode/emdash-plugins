@@ -1,9 +1,11 @@
 /**
  * The freshness rules — pure functions over one entry.
  *
- * Every rule reads fields the content API already returns
- * (`updatedAt`, `status`, `scheduledAt`, `seo`), so the whole audit runs
- * without network access and without knowing the collection's schema.
+ * Every rule reads fields the content API already returns (`updatedAt`,
+ * `status`, `scheduledAt`, `seo`, the revision ids), plus two facts about the
+ * entry's collection from `schema:read`: whether it keeps revisions, and which
+ * `datetime` field, if any, the settings chose as its expiry date. The whole
+ * audit runs without network access.
  *
  * A rule yields a `Hit`: the rule, its severity and the values its sentence
  * needs. Sentences are built when a page renders, never stored, so a stored
@@ -20,6 +22,8 @@ export const RULES = [
 	"stale",
 	"stale-draft",
 	"description-length",
+	"unpublished-changes",
+	"expired",
 ] as const;
 
 export type Rule = (typeof RULES)[number];
@@ -44,6 +48,8 @@ export interface Thresholds {
 	descriptionMax: number;
 	/** Off for a site whose templates always render a description of their own. */
 	reportMissingDescriptions: boolean;
+	/** Changes saved to a published entry and left unpublished for longer than this are reported. */
+	pendingDays: number;
 }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
@@ -52,7 +58,26 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 	descriptionMin: 50,
 	descriptionMax: 160,
 	reportMissingDescriptions: true,
+	pendingDays: 14,
 };
+
+/** The `datetime` field after which a collection's entries have expired. */
+export interface ExpiryField {
+	slug: string;
+	label: string;
+}
+
+export const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** What a rule needs to know about an entry's collection. */
+export interface EntryContext {
+	/** The field the entry expires after, when the settings chose one. */
+	expiry: ExpiryField | null;
+	/** Whether the collection keeps revisions, so a draft revision means unpublished changes. */
+	revisions: boolean;
+}
+
+export const NO_CONTEXT: EntryContext = { expiry: null, revisions: false };
 
 /**
  * How long a passed schedule may wait before it counts as missed. EmDash
@@ -75,10 +100,48 @@ function fallbackField(data: Record<string, unknown>): string | null {
 	return null;
 }
 
-export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, now: Date): Hit[] {
+export function evaluateEntry(
+	entry: PluginContentItem,
+	thresholds: Thresholds,
+	now: Date,
+	context: EntryContext = NO_CONTEXT,
+): Hit[] {
 	const hits: Hit[] = [];
 	const published = entry.status === "published";
-	const updatedAt = parseDate(entry.updatedAt);
+
+	// In a collection with revisions, a save stages the changes in a draft
+	// revision and leaves `updatedAt` alone; publishing or discarding them
+	// clears it. Revision ids are ULIDs, so the draft revision's id is where
+	// the time of the last save is. Without revisions the pointer means
+	// nothing: a restore can set it and no save clears it.
+	const draftSavedAt =
+		context.revisions && entry.draftRevisionId && entry.draftRevisionId !== entry.liveRevisionId
+			? ulidTime(entry.draftRevisionId)
+			: null;
+	const lastEdit = latest(parseDate(entry.updatedAt), draftSavedAt);
+
+	// Changes scheduled to go live are waiting on purpose; a missed schedule
+	// is `overdue-schedule`'s to report.
+	if (
+		published &&
+		draftSavedAt &&
+		!entry.scheduledAt &&
+		draftSavedAt.getTime() < now.getTime() - thresholds.pendingDays * DAY_MS
+	) {
+		hits.push({ rule: "unpublished-changes", severity: "medium", params: { since: day(draftSavedAt) } });
+	}
+
+	// EmDash stores every `datetime` value as a UTC instant, reading a value
+	// without a time as midnight in the site's timezone. A plugin does not
+	// know that timezone, so the instant is compared as it is and named with
+	// its time in UTC.
+	if (published && context.expiry) {
+		const value = entry.data[context.expiry.slug];
+		const ends = typeof value === "string" ? parseDate(value) : null;
+		if (ends && ends.getTime() <= now.getTime()) {
+			hits.push({ rule: "expired", severity: "medium", params: { field: context.expiry.label, date: minuteUtc(ends) } });
+		}
+	}
 
 	// A schedule that came and went. On an unpublished entry it was meant to
 	// publish it; on a published one, to publish its pending changes. Either
@@ -123,13 +186,15 @@ export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, 
 	}
 
 	// A threshold of 0 switches the rule off: a collection whose entries are
-	// not expected to change, such as testimonials.
-	if (updatedAt) {
-		if (published && thresholds.staleMonths > 0 && updatedAt < subtractMonths(now, thresholds.staleMonths)) {
-			hits.push({ rule: "stale", severity: "medium", params: { since: day(updatedAt) } });
+	// not expected to change, such as testimonials. The last edit counts
+	// saves staged in a draft revision, so an entry someone is working on is
+	// not stale; if they stop, `unpublished-changes` says so.
+	if (lastEdit) {
+		if (published && thresholds.staleMonths > 0 && lastEdit < subtractMonths(now, thresholds.staleMonths)) {
+			hits.push({ rule: "stale", severity: "medium", params: { since: day(lastEdit) } });
 		}
-		if (entry.status === "draft" && thresholds.draftMonths > 0 && updatedAt < subtractMonths(now, thresholds.draftMonths)) {
-			hits.push({ rule: "stale-draft", severity: "low", params: { since: day(updatedAt) } });
+		if (entry.status === "draft" && thresholds.draftMonths > 0 && lastEdit < subtractMonths(now, thresholds.draftMonths)) {
+			hits.push({ rule: "stale-draft", severity: "low", params: { since: day(lastEdit) } });
 		}
 	}
 
@@ -155,6 +220,43 @@ export function subtractMonths(from: Date, months: number): Date {
 	).getUTCDate();
 	shifted.setUTCDate(Math.min(date, lastDay));
 	return shifted;
+}
+
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** The time a ULID was minted, from its first ten characters; null for anything that is not a ULID. */
+export function ulidTime(id: string | null | undefined): Date | null {
+	if (!id || !/^[0-9A-HJKMNP-TV-Z]{26}$/i.test(id)) return null;
+	let ms = 0;
+	for (const char of id.slice(0, 10).toUpperCase()) ms = ms * 32 + CROCKFORD.indexOf(char);
+	return new Date(ms);
+}
+
+/** Field names that say when an entry stops being current. */
+const EXPIRY_NAME =
+	/(?:^|_)(?:end|ends|until|expires?|expiry|expiration|deadline|closes?|closing|valid_to|valid_through)(?:_at|_date|_on|_time|_datetime)?$/;
+
+/** A collection's `datetime` fields, the only fields an expiry date can be in. */
+export function datetimeFields(fields: Array<{ slug: string; label: string; type: string }>): ExpiryField[] {
+	return fields
+		.filter((field) => field.type === "datetime")
+		.map((field) => ({ slug: field.slug, label: field.label || field.slug }));
+}
+
+/** The first of `fields` whose name says when an entry runs out: a suggestion, never applied on its own. */
+export function detectExpiryField(fields: ExpiryField[]): ExpiryField | null {
+	return fields.find((field) => EXPIRY_NAME.test(field.slug)) ?? null;
+}
+
+function latest(a: Date | null, b: Date | null): Date | null {
+	if (!a) return b;
+	if (!b) return a;
+	return a > b ? a : b;
+}
+
+/** An instant to the minute, in UTC: `2026-01-30 23:00 UTC`. */
+function minuteUtc(date: Date): string {
+	return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 /** Tolerant date parse — a malformed timestamp is skipped, not thrown on. */

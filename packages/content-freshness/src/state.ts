@@ -7,7 +7,19 @@ import type { PluginContext } from "emdash/plugin";
 
 export const STATE_KEY = "state";
 
+/** Raised whenever `Sweep` changes shape; a sweep of an older shape starts over. */
+export const SWEEP_VERSION = 2;
+
+/** What a sweep reads about a collection when it starts. */
+export interface CollectionInfo {
+	/** Its `datetime` fields, for the expiry rule. */
+	dateFields: Array<{ slug: string; label: string }>;
+	/** Whether it keeps revisions, for the unpublished-changes rule. */
+	revisions: boolean;
+}
+
 export interface Sweep {
+	version: number;
 	/** Rows written by this sweep carry this as `seenIn`; older ones are removed at the end. */
 	startedAt: string;
 	/** The collections as they were when the sweep started, walked in order. */
@@ -16,6 +28,8 @@ export interface Sweep {
 	/** `content.list` cursor within `collections[index]`. */
 	cursor: string | null;
 	phase: "audit" | "cleanup";
+	/** Per collection, read with the collection list so a page needs no schema call. */
+	info: Record<string, CollectionInfo>;
 }
 
 export interface State {
