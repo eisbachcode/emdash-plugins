@@ -1,7 +1,7 @@
 import type { PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AUDIT_NOW_ACTION, PAGE_ACTION, SAVE_SETTINGS_ACTION } from "../src/report.js";
+import { AUDIT_NOW_ACTION, SAVE_SETTINGS_ACTION, VIEW_ACTION } from "../src/report.js";
 import { SETTINGS_KEY } from "../src/settings.js";
 import { STATE_KEY, type State } from "../src/state.js";
 import { bridgeCalls } from "./bridge-calls.js";
@@ -163,7 +163,7 @@ describe("admin requests", () => {
 		host = await siteWithFindings();
 		const runtime = host;
 		for (const invocation of [
-			() => runtime.admin.act("/report", PAGE_ACTION, { value: { cursor: "x" } }),
+			() => runtime.admin.act("/report", VIEW_ACTION, { value: { collection: "posts", rank: 1, cursor: "x" } }),
 			() => runtime.admin.act("/report", AUDIT_NOW_ACTION),
 			() => runtime.admin.submit("/settings", SAVE_SETTINGS_ACTION, { schedule: "15 3 * * *", staleMonths: 6 }),
 		]) {

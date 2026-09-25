@@ -16,7 +16,10 @@ export interface EntryFindings {
 	collection: string;
 	entryId: string;
 	slug: string | null;
+	/** The entry's `title` field, when it has one, for the report's headings. */
+	title: string | null;
 	locale: string | null;
+	authorId: string | null;
 	rank: number;
 	hits: Hit[];
 	entryUpdatedAt: string;
@@ -55,7 +58,9 @@ export function evaluateEntries(
 				collection,
 				entryId: entry.id,
 				slug: entry.slug,
+				title: typeof entry.data.title === "string" && entry.data.title.trim() ? entry.data.title.trim() : null,
 				locale: entry.locale ?? null,
+				authorId: entry.authorId ?? null,
 				rank: worstRank(hits),
 				hits,
 				entryUpdatedAt: entry.updatedAt,

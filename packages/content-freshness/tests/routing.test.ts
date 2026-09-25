@@ -40,7 +40,7 @@ describe("the URL pattern warning", () => {
 			{ slug: "authors", label: "Authors", routable: false, urlPattern: null },
 		]);
 
-		const { blocks } = await buildReportPage(ctx, STATE);
+		const { blocks } = await buildReportPage(ctx, STATE, "en");
 		const [banner] = banners(blocks);
 		expect(banner?.title).toContain("Posts");
 		expect(banner?.title).not.toContain("Pages");
@@ -49,13 +49,13 @@ describe("the URL pattern warning", () => {
 
 	it("reaches the dashboard even when no entry has a finding", async () => {
 		const ctx = fakeContext([{ slug: "posts", label: "Posts", routable: true, urlPattern: null }]);
-		const { blocks } = await buildWidget(ctx, STATE);
+		const { blocks } = await buildWidget(ctx, STATE, "en");
 		expect(banners(blocks)).toHaveLength(1);
 	});
 
 	it("stays out of the way when every routable collection has a pattern", async () => {
 		const ctx = fakeContext([{ slug: "posts", label: "Posts", routable: true, urlPattern: "/blog/{slug}" }]);
-		expect(banners((await buildReportPage(ctx, STATE)).blocks)).toHaveLength(0);
-		expect(banners((await buildWidget(ctx, STATE)).blocks)).toHaveLength(0);
+		expect(banners((await buildReportPage(ctx, STATE, "en")).blocks)).toHaveLength(0);
+		expect(banners((await buildWidget(ctx, STATE, "en")).blocks)).toHaveLength(0);
 	});
 });

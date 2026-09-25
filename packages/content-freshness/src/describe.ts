@@ -1,25 +1,33 @@
 /**
- * The sentence the report shows for a hit, built from its stored params.
+ * The sentence shown for a hit, built from its stored params in the
+ * reader's language.
  */
 
+import { t, type Lang } from "./i18n.js";
 import type { Hit } from "./rules.js";
 
-export function describeHit(hit: Hit): string {
+function statusText(lang: Lang, status: string | number | undefined): string {
+	if (status === "draft") return t(lang, "statusDraft");
+	if (status === "scheduled") return t(lang, "statusScheduled");
+	return t(lang, "statusOther", { status: String(status ?? "") });
+}
+
+export function describeHit(lang: Lang, hit: Hit): string {
 	const { params } = hit;
 	switch (hit.rule) {
 		case "overdue-schedule":
 			return params.kind === "update"
-				? `Changes scheduled for ${params.date} were never published.`
-				: `Scheduled for ${params.date} but still ${params.status}.`;
+				? t(lang, "hitOverdueUpdate", { date: params.date ?? "" })
+				: t(lang, "hitOverduePublish", { date: params.date ?? "", status: statusText(lang, params.status) });
 		case "missing-description":
 			return params.field
-				? `No SEO description; templates often show the "${params.field}" field instead.`
-				: "Published without an SEO description.";
+				? t(lang, "hitMissingFallback", { field: params.field })
+				: t(lang, "hitMissingDescription");
 		case "description-length":
-			return `SEO description is ${params.length} characters; aim for ${params.min}–${params.max}.`;
+			return t(lang, "hitDescriptionLength", params);
 		case "stale":
-			return `Not touched since ${params.since}.`;
+			return t(lang, "hitStale", params);
 		case "stale-draft":
-			return `Draft untouched since ${params.since}.`;
+			return t(lang, "hitStaleDraft", params);
 	}
 }

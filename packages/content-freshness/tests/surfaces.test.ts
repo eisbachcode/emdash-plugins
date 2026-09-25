@@ -106,7 +106,7 @@ describe("the report's paging", () => {
 		await undescribed(host, "posts", "no-description");
 		await runSweep(host);
 
-		const response = await host.admin.act("/report", "findings_page", { value: { cursor: "not-a-cursor" } });
+		const response = await host.admin.act("/report", "report_view", { value: { cursor: "not-a-cursor" } });
 
 		expect(valid(response)).toBe(true);
 		expect(JSON.stringify(response.blocks)).toContain("no-description");
