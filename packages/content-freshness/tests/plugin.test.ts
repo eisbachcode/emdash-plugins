@@ -9,7 +9,16 @@ import plugin from "../src/plugin.js";
  */
 describe("plugin surface", () => {
 	it("registers the audit hooks", () => {
-		expect(Object.keys(plugin.hooks ?? {}).sort()).toEqual(["cron", "plugin:activate"]);
+		expect(Object.keys(plugin.hooks ?? {}).sort()).toEqual([
+			"content:afterDelete",
+			"content:afterPublish",
+			"content:afterRestore",
+			"content:afterSchedule",
+			"content:afterUnpublish",
+			"content:afterUnschedule",
+			"cron",
+			"plugin:activate",
+		]);
 	});
 
 	it("registers the admin and status routes", () => {

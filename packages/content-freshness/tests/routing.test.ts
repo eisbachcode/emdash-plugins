@@ -1,7 +1,9 @@
+import type { BannerBlock, Block } from "@emdash-cms/blocks";
 import type { PluginContext } from "emdash/plugin";
 import { describe, expect, it } from "vitest";
 
 import { buildReportPage, buildWidget } from "../src/report.js";
+import type { State } from "../src/state.js";
 
 /**
  * A routable collection without a URL pattern gets `/{collection}/{slug}`
@@ -12,21 +14,22 @@ import { buildReportPage, buildWidget } from "../src/report.js";
 
 type Collection = { slug: string; label: string; routable: boolean; urlPattern: string | null };
 
+const STATE: State = { sweep: null, lastFinishedAt: null };
+
 function fakeContext(collections: Collection[]) {
 	return {
-		kv: { get: async () => null },
 		schema: { listCollections: async () => collections },
 		storage: {
 			findings: {
 				count: async () => 0,
-				query: async () => ({ items: [], cursor: null }),
+				query: async () => ({ items: [], hasMore: false }),
 			},
 		},
 	} as unknown as PluginContext;
 }
 
-function banners(blocks: Array<Record<string, unknown>>) {
-	return blocks.filter((block) => block.type === "banner");
+function banners(blocks: Block[]) {
+	return blocks.filter((block): block is BannerBlock => block.type === "banner");
 }
 
 describe("the URL pattern warning", () => {
@@ -37,7 +40,7 @@ describe("the URL pattern warning", () => {
 			{ slug: "authors", label: "Authors", routable: false, urlPattern: null },
 		]);
 
-		const { blocks } = await buildReportPage(ctx);
+		const { blocks } = await buildReportPage(ctx, STATE);
 		const [banner] = banners(blocks);
 		expect(banner?.title).toContain("Posts");
 		expect(banner?.title).not.toContain("Pages");
@@ -46,13 +49,13 @@ describe("the URL pattern warning", () => {
 
 	it("reaches the dashboard even when no entry has a finding", async () => {
 		const ctx = fakeContext([{ slug: "posts", label: "Posts", routable: true, urlPattern: null }]);
-		const { blocks } = await buildWidget(ctx);
+		const { blocks } = await buildWidget(ctx, STATE);
 		expect(banners(blocks)).toHaveLength(1);
 	});
 
 	it("stays out of the way when every routable collection has a pattern", async () => {
 		const ctx = fakeContext([{ slug: "posts", label: "Posts", routable: true, urlPattern: "/blog/{slug}" }]);
-		expect(banners((await buildReportPage(ctx)).blocks)).toHaveLength(0);
-		expect(banners((await buildWidget(ctx)).blocks)).toHaveLength(0);
+		expect(banners((await buildReportPage(ctx, STATE)).blocks)).toHaveLength(0);
+		expect(banners((await buildWidget(ctx, STATE)).blocks)).toHaveLength(0);
 	});
 });

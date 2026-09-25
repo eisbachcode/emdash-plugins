@@ -7,7 +7,7 @@ What it looks for:
 
 | Finding | Priority |
 | --- | --- |
-| Scheduled to publish, the date passed, still not published | urgent |
+| Scheduled to publish, or scheduled changes to a published entry, and the date passed without them going live | urgent |
 | Published without an SEO description | should fix; nice to fix when the entry has an excerpt-like field |
 | Published and untouched for longer than your threshold | should fix |
 | SEO description too short or too long | nice to fix |
@@ -20,12 +20,16 @@ ending in `_excerpt`, `_description`, `_summary` or `_subheadline` therefore
 gets the lower priority, and the finding names the field. A site whose
 templates always render a description can switch the check off.
 
-A fixed entry drops out of the report on the next sweep — the audit stores the
-current state, not a history.
+The report holds one row per entry that needs attention, most urgent first.
+It shows the current state, not a history: an entry is checked again when it
+is published, unpublished, scheduled, unscheduled or restored, and leaves the
+report as soon as it is trashed or deleted. Other edits show up with the next
+audit, which also removes rows of entries that no longer exist.
 
 Each run audits one page of one collection, and an audit carries on in
 follow-up runs until it is done, one per firing of the site's cron trigger,
-instead of waiting a day per collection.
+instead of waiting a day per collection. Every run stays within the ten
+subrequests EmDash allows a sandboxed plugin per invocation.
 
 The report and the dashboard widget also warn about routable collections
 without a URL pattern. EmDash then links their entries as
@@ -51,8 +55,10 @@ emdash({ plugins: [contentFreshness] });
 
 Or under `sandboxed: []` if the site has a sandbox runner configured.
 
-Then activate it once under **Admin → Extensions**. Every collection on the
-site is audited.
+Every collection on the site is audited. The nightly audit is registered the
+first time the dashboard or the report is opened, so an install needs no
+further step. **Audit now** on the report starts one at the next firing of
+the site's cron trigger.
 
 **The site needs a cron trigger.** On Cloudflare that is `"crons"` in
 `wrangler.jsonc` plus `scheduled: createScheduledHandler()` on the Worker
@@ -66,8 +72,8 @@ entry. Without one, the audit is scheduled and never runs.
 | Draft forgotten after | 6 months | For drafts. |
 | SEO description | 50–160 characters | Outside this range is a low-priority finding. |
 | Report entries without an SEO description | on | Off for a site whose templates always render a description. The length check still runs. |
-| Entries per run | 50 | One collection list, one `content.list` and two batched storage calls per run, whatever the page size. |
-| Schedule | `0 4 * * *` | Any cron expression. |
+| Entries per run | 50 | At most 100, the most one content query returns. The number of calls per run does not grow with it. |
+| Schedule | `0 4 * * *` | A cron expression, in UTC. One the scheduler rejects is not saved. |
 
 ## Develop
 
@@ -82,10 +88,10 @@ pnpm build
 
 | EmDash | Plugin test suite |
 | ------ | ----------------- |
-| 0.40.1 | 38 passed |
-| 0.40.0 | 38 passed |
-| 0.39.1 | 38 passed |
-| 0.39.0 | 38 passed |
+| 0.40.1 | 65 passed |
+| 0.40.0 | 65 passed |
+| 0.39.1 | 65 passed |
+| 0.39.0 | 65 passed |
 
 Declared range: `emdash >=0.39.0`, with no upper bound. The table covers
 **every EmDash release since the floor**. 0.39.0 is the floor because the

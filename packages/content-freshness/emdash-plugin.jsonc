@@ -30,9 +30,10 @@
 	"allowedHosts": [],
 
 	"storage": {
-		// One row per (entry, rule). Re-running overwrites, so a fixed
-		// entry drops out of the report on the next sweep.
-		"findings": { "indexes": ["collection", "severity", "rule", "entryId"] },
+		// One row per entry with at least one finding. `rank` orders the
+		// report most urgent first; `seenIn` finds the rows a finished sweep
+		// did not confirm, which belong to entries that no longer exist.
+		"findings": { "indexes": ["collection", "rank", "seenIn"] },
 	},
 
 	"admin": {

@@ -5,86 +5,113 @@
  * `plugins: []`) and sandboxed mode. Logic lives in the sibling modules.
  */
 
+import { hasRole, ROLE } from "@eisbachcode/emdash-plugin-shared";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
-import { buildReportPage, buildSettingsPage, buildWidget, countFindings } from "./report.js";
+import { changedEntry, deletedEntry, forget, reevaluate } from "./hooks.js";
 import {
-	followUpPending,
-	hasRole,
-	isFollowUp,
-	listCollections,
-	ROLE,
-	scheduleFollowUp,
-	type SweepChain,
-} from "@eisbachcode/emdash-plugin-shared";
-import { readSettings, writeSettings } from "./settings.js";
-import { auditNextPage, finishSweep } from "./sweep.js";
-
-async function collectionSlugs(ctx: PluginContext): Promise<string[]> {
-	return (await listCollections(ctx)).map((collection) => collection.slug);
-}
-
-/** Audit the next page of the next unfinished collection. Returns whether there is more to do. */
-async function auditStep(ctx: PluginContext): Promise<boolean> {
-	const settings = await readSettings(ctx);
-	const collections = await collectionSlugs(ctx);
-	if (collections.length === 0) {
-		ctx.log.warn("No collections to audit");
-		return false;
-	}
-
-	const result = await auditNextPage(ctx, settings, collections);
-	if (!result) {
-		await finishSweep(ctx, collections);
-		ctx.log.info("Freshness audit complete");
-		return false;
-	}
-	ctx.log.info(`Audited ${result.entries} entries in ${result.collection}, ${result.found} findings`);
-	return true;
-}
+	AUDIT_NOW_ACTION,
+	buildReportPage,
+	buildSettingsPage,
+	buildWidget,
+	countFindings,
+	FIRST_PAGE_ACTION,
+	PAGE_ACTION,
+	SAVE_SETTINGS_ACTION,
+} from "./report.js";
+import { ensureScheduled } from "./schedule.js";
+import { applyForm, readStoredSettings, writeStoredSettings } from "./settings.js";
+import { readState } from "./state.js";
+import { AUDIT_NOW_TASK, runAudit } from "./sweep.js";
 
 interface AdminInteraction {
 	type: string;
 	page?: string;
 	action_id?: string;
+	value?: unknown;
 	values?: Record<string, unknown>;
 }
 
 /**
- * The recurring task, and the one-shot the "Audit now" button schedules.
- *
- * They cannot share a name. `ctx.cron.schedule()` upserts on (plugin, task
- * name), so scheduling the recurring name with a one-shot timestamp would
- * replace the recurring audit with a task that runs once and never again. The
- * button schedules its own name instead, and the cron handler answers to
- * both.
+ * Settings and state, with the recurring audit registered if it was not yet.
+ * A failure to schedule is logged and the page still renders: the settings
+ * page is where a bad schedule gets fixed.
  */
-const AUDIT_TASK = "audit";
-const AUDIT_NOW_TASK = "audit-now";
+async function loadAdmin(ctx: PluginContext) {
+	const [stored, state] = await Promise.all([readStoredSettings(ctx), readState(ctx)]);
+	try {
+		if (await ensureScheduled(ctx, stored)) await writeStoredSettings(ctx, stored);
+	} catch (error) {
+		ctx.log.warn(`Could not schedule the audit: ${errorMessage(error)}`);
+	}
+	return { settings: stored.settings, state };
+}
 
-/** An audit carries on in follow-up runs until it is done. 500 runs is 25,000 entries at the default page size. */
-const CHAIN: SweepChain = { next: ["audit-next-a", "audit-next-b"], maxSteps: 500 };
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function cursorOf(value: unknown): string | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const cursor = (value as { cursor?: unknown }).cursor;
+	return typeof cursor === "string" && cursor ? cursor : undefined;
+}
+
+/** Re-evaluate one entry after a state change. Never fails the editor's action. */
+async function refresh(ctx: PluginContext, event: unknown): Promise<void> {
+	const ref = changedEntry(event);
+	if (!ref) return;
+	try {
+		await reevaluate(ctx, ref);
+	} catch (error) {
+		ctx.log.warn(`Could not re-check ${ref.collection}/${ref.id}: ${String(error)}`);
+	}
+}
+
+const onStateChange = {
+	errorPolicy: "continue" as const,
+	handler: async (event: unknown, ctx: PluginContext) => refresh(ctx, event),
+};
 
 const plugin = {
 	hooks: {
 		"plugin:activate": {
 			handler: async (_event, ctx) => {
-				const settings = await readSettings(ctx);
-				await ctx.cron?.schedule(AUDIT_TASK, { schedule: settings.schedule });
-				ctx.log.info(`Freshness audit scheduled: ${settings.schedule}`);
+				const stored = await readStoredSettings(ctx);
+				await ensureScheduled(ctx, stored, true);
+				await writeStoredSettings(ctx, stored);
 			},
 		},
 
+		/**
+		 * The recurring task, the one-shot the "Audit now" button schedules,
+		 * and the follow-ups of a running sweep.
+		 *
+		 * The recurring task and the button's one-shot cannot share a name.
+		 * `ctx.cron.schedule()` upserts on (plugin, task name), so scheduling
+		 * the recurring name with a one-shot timestamp would replace the
+		 * recurring audit with a task that runs once and never again.
+		 */
 		cron: {
 			handler: async (event, ctx) => {
-				const starts = event.name === AUDIT_TASK || event.name === AUDIT_NOW_TASK;
-				if (!starts && !isFollowUp(CHAIN, event.name)) return;
-				// A follow-up already waiting means an audit is under way.
-				if (starts && (await followUpPending(ctx, CHAIN))) return;
+				await runAudit(ctx, event);
+			},
+		},
 
-				if (!(await auditStep(ctx))) return;
-				if (!(await scheduleFollowUp(ctx, CHAIN, event))) {
-					ctx.log.warn(`Audit paused after ${CHAIN.maxSteps} runs; it continues at the next scheduled run`);
+		"content:afterPublish": onStateChange,
+		"content:afterUnpublish": onStateChange,
+		"content:afterSchedule": onStateChange,
+		"content:afterUnschedule": onStateChange,
+		"content:afterRestore": onStateChange,
+		"content:afterDelete": {
+			errorPolicy: "continue",
+			handler: async (event, ctx) => {
+				const ref = deletedEntry(event);
+				if (!ref) return;
+				try {
+					await forget(ctx, ref);
+				} catch (error) {
+					ctx.log.warn(`Could not drop ${ref.collection}/${ref.id}: ${String(error)}`);
 				}
 			},
 		},
@@ -103,29 +130,36 @@ const plugin = {
 				const interaction = routeCtx.input as AdminInteraction;
 
 				if (interaction.type === "page_load") {
-					if (interaction.page === "widget:summary") return buildWidget(ctx);
-					if (interaction.page === "/settings") return buildSettingsPage(ctx);
-					return buildReportPage(ctx);
+					const { settings, state } = await loadAdmin(ctx);
+					if (interaction.page === "widget:summary") return buildWidget(ctx, state);
+					if (interaction.page === "/settings") return buildSettingsPage(settings);
+					return buildReportPage(ctx, state);
 				}
 
-				if (interaction.type === "form_submit" && interaction.action_id === "save_settings") {
-					if (!hasRole(routeCtx.user, ROLE.ADMIN)) {
+				if (interaction.type === "form_submit" && interaction.action_id === SAVE_SETTINGS_ACTION) {
+					return saveSettings(ctx, routeCtx.user, interaction.values ?? {});
+				}
+
+				if (interaction.type === "block_action") {
+					if (interaction.action_id === PAGE_ACTION) {
+						return buildReportPage(ctx, await readState(ctx), cursorOf(interaction.value));
+					}
+					if (interaction.action_id === FIRST_PAGE_ACTION) {
+						return buildReportPage(ctx, await readState(ctx));
+					}
+					if (interaction.action_id === AUDIT_NOW_ACTION) {
+						await ctx.cron?.schedule(AUDIT_NOW_TASK, { schedule: new Date(Date.now() + 1000).toISOString() });
+						const state = await readState(ctx);
 						return {
-							...(await buildSettingsPage(ctx)),
-							toast: { message: "Only an administrator can change these settings.", type: "error" },
+							...(await buildReportPage(ctx, state)),
+							toast: {
+								message: state.sweep
+									? "The running audit continues with the next scheduled run."
+									: "The audit starts with the next scheduled run.",
+								type: "info",
+							},
 						};
 					}
-					await writeSettings(ctx, interaction.values ?? {});
-					const settings = await readSettings(ctx);
-					// Re-register so a changed cron expression takes effect.
-					await ctx.cron?.schedule(AUDIT_TASK, { schedule: settings.schedule });
-					return buildSettingsPage(ctx);
-				}
-
-				if (interaction.type === "block_action" && interaction.action_id === "audit_now") {
-					await finishSweep(ctx, await collectionSlugs(ctx));
-					await ctx.cron?.schedule(AUDIT_NOW_TASK, { schedule: new Date(Date.now() + 1000).toISOString() });
-					return buildReportPage(ctx);
 				}
 
 				return { blocks: [] };
@@ -134,15 +168,43 @@ const plugin = {
 
 		status: {
 			handler: async (_routeCtx, ctx) => {
+				const [state, counts] = await Promise.all([readState(ctx), countFindings(ctx)]);
 				return {
-					collections: await collectionSlugs(ctx),
-					lastSweepFinishedAt: await ctx.kv.get<string>("state:lastSweepFinishedAt"),
-					counts: await countFindings(ctx),
+					lastSweepFinishedAt: state.lastFinishedAt,
+					sweepInProgress: state.sweep !== null,
+					entriesBySeverity: counts,
 				};
 			},
 		},
 	},
 } satisfies SandboxedPlugin;
+
+async function saveSettings(
+	ctx: PluginContext,
+	user: Parameters<typeof hasRole>[0],
+	values: Record<string, unknown>,
+) {
+	const stored = await readStoredSettings(ctx);
+	if (!hasRole(user, ROLE.ADMIN)) {
+		return {
+			...buildSettingsPage(stored.settings),
+			toast: { message: "Only an administrator can change these settings.", type: "error" as const },
+		};
+	}
+
+	const next = { settings: applyForm(stored.settings, values), scheduledAs: stored.scheduledAs };
+	// Schedule first: an expression the scheduler rejects is never stored.
+	try {
+		await ensureScheduled(ctx, next);
+	} catch (error) {
+		return {
+			...buildSettingsPage(stored.settings),
+			toast: { message: `Settings not saved. ${errorMessage(error)}`, type: "error" as const },
+		};
+	}
+	await writeStoredSettings(ctx, next);
+	return { ...buildSettingsPage(next.settings), toast: { message: "Settings saved.", type: "success" as const } };
+}
 
 /**
  * `satisfies` above for the per-hook inference (`event` typed by hook
