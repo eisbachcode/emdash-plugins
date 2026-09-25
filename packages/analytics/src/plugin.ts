@@ -1,5 +1,5 @@
 /**
- * Hooks, the cron dispatcher and the single admin route.
+ * Hooks, the cron dispatcher, the admin routes and the MCP tools.
  *
  * Hooks and routes are declared here rather than in `emdash-plugin.jsonc`
  * because the authored manifest is strict and rejects both keys outright;
@@ -50,6 +50,8 @@ import { CONTENT_PATH, loadContent, parseContentInput, renderContent } from "./u
 import { loadPanel, renderPanel } from "./ui/panel.js";
 import { loadWidget, renderWidget, REFRESH_ACTION } from "./ui/widget.js";
 import { DEFAULT_SYNC_INTERVAL } from "./settings.js";
+import { mcpTools } from "./tools/declare.js";
+import { entryViews, siteTotals, topEntries, TOOL_ROUTES, unviewedEntries } from "./tools/load.js";
 
 /**
  * The cron hook's own timeout. The default is 5 000 ms, which a tick that
@@ -196,7 +198,28 @@ const plugin: SandboxedPlugin = {
 				return { blocks: renderPanel(await loadPanel(ctx, entryId, state, new Date(), ui?.locale)) };
 			},
 		},
+
+		// The MCP tools' routes read what the analytics pages show, so they
+		// need the same permission.
+		[TOOL_ROUTES.topEntries]: {
+			permission: "plugins:read",
+			handler: async (routeCtx, ctx) => await topEntries(ctx, routeCtx.input, new Date()),
+		},
+		[TOOL_ROUTES.unviewedEntries]: {
+			permission: "plugins:read",
+			handler: async (routeCtx, ctx) => await unviewedEntries(ctx, routeCtx.input, new Date()),
+		},
+		[TOOL_ROUTES.entryViews]: {
+			permission: "plugins:read",
+			handler: async (routeCtx, ctx) => await entryViews(ctx, routeCtx.input, new Date()),
+		},
+		[TOOL_ROUTES.siteTotals]: {
+			permission: "plugins:read",
+			handler: async (routeCtx, ctx) => await siteTotals(ctx, routeCtx.input, new Date()),
+		},
 	},
+
+	mcp: { tools: mcpTools() },
 };
 
 /**

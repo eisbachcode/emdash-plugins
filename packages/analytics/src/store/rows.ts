@@ -71,6 +71,11 @@ export interface EntryRow {
 	updatedAt: string;
 }
 
+/** Rows kept for history after an unpublish, a delete or a move are not on the site. */
+export function isPublished(row: EntryRow): boolean {
+	return row.status === "published";
+}
+
 export const DAILY_ID_SEPARATOR = "|";
 
 export function dailyId(date: Day, path: string): string {
