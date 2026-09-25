@@ -127,8 +127,18 @@ function urlPatternBanner(lang: Lang, collections: PluginCollectionInfo[], detai
 	];
 }
 
-export async function buildWidget(ctx: PluginContext, state: State, lang: Lang): Promise<BlockResponse> {
-	const [counts, collections] = await Promise.all([countFindings(ctx), listCollections(ctx)]);
+/** The dashboard card. With `userId`, it also says how many of the entries are that user's. */
+export async function buildWidget(
+	ctx: PluginContext,
+	state: State,
+	lang: Lang,
+	userId?: string,
+): Promise<BlockResponse> {
+	const [counts, collections, yours] = await Promise.all([
+		countFindings(ctx),
+		listCollections(ctx),
+		userId ? ctx.storage.findings.count({ authorId: userId }) : Promise.resolve(0),
+	]);
 	const banner = urlPatternBanner(lang, collections, false);
 
 	if (counts.total === 0) {
@@ -150,6 +160,7 @@ export async function buildWidget(ctx: PluginContext, state: State, lang: Lang):
 		blocks: [
 			...banner,
 			statsBlock(lang, counts, false),
+			...(yours > 0 ? [{ type: "context" as const, text: t(lang, "widgetYours", { count: yours }) }] : []),
 			{ type: "context", text: auditStatus(lang, state) },
 			{
 				type: "actions",

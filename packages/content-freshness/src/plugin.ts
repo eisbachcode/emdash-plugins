@@ -131,7 +131,7 @@ const plugin = {
 
 				if (interaction.type === "page_load") {
 					const { settings, state } = await loadAdmin(ctx);
-					if (interaction.page === "widget:summary") return buildWidget(ctx, state, lang);
+					if (interaction.page === "widget:summary") return buildWidget(ctx, state, lang, routeCtx.user?.id);
 					if (interaction.page === "/settings") return buildSettingsPage(settings, lang, await listCollections(ctx));
 					return buildReportPage(ctx, state, lang);
 				}

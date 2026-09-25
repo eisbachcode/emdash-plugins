@@ -141,3 +141,18 @@ describe("a collection left out of the audit", () => {
 		expect(form.fields.find((field) => field.action_id === "collection:posts:staleMonths")?.initial_value).toBe(0);
 	});
 });
+
+describe("the dashboard widget", () => {
+	it("tells an editor how many of the entries that need attention are theirs", async () => {
+		host = await newHost();
+		const editor = await host.fixtures.user({ email: "editor@example.test", role: "editor" });
+		await host.fixtures.content("posts", { slug: "editors", data: {}, status: "published", authorId: editor.id });
+		await undescribed(host, "posts", "someone-elses");
+		await runSweep(host);
+
+		const widget = await host.admin.loadWidget("summary", { user: editor });
+
+		expect(valid(widget)).toBe(true);
+		expect(JSON.stringify(widget.blocks)).toContain("1 of them is yours");
+	});
+});
