@@ -82,6 +82,6 @@ describe("saving settings", () => {
 		expect(writes.length).toBeGreaterThan(0);
 		// The cron is re-registered so a changed expression takes effect.
 		expect(scheduled).toContain("audit");
-		expect(result.toast).toBeUndefined();
+		expect(result.toast?.type).toBe("success");
 	});
 });

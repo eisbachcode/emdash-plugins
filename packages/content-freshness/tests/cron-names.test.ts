@@ -11,7 +11,7 @@ import plugin from "../src/plugin.js";
  * handler has to answer to both.
  */
 
-/** Minimal context: `readSettings` reads plugin KV and nothing else. */
+/** Minimal context: settings and state come from KV, and the site has no collections, so no sweep starts. */
 function fakeContext() {
 	const warns: string[] = [];
 	const reads: string[] = [];
@@ -22,6 +22,8 @@ function fakeContext() {
 				return null;
 			},
 		},
+		content: {},
+		schema: { listCollections: async () => [] },
 		log: {
 			debug() {},
 			info() {},

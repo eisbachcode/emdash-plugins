@@ -4,6 +4,10 @@
  * Every rule reads fields the content API already returns
  * (`updatedAt`, `status`, `scheduledAt`, `seo`), so the whole audit runs
  * without network access and without knowing the collection's schema.
+ *
+ * A rule yields a `Hit`: the rule, its severity and the values its sentence
+ * needs. Sentences are built when a page renders, never stored, so a stored
+ * finding reads in whatever language the admin is shown in.
  */
 
 import type { PluginContentItem } from "@eisbachcode/emdash-plugin-shared";
@@ -20,17 +24,16 @@ export const RULES = [
 
 export type Rule = (typeof RULES)[number];
 
-export interface Finding {
-	collection: string;
-	entryId: string;
-	slug: string | null;
-	locale: string | null;
+export type HitParams = Record<string, string | number>;
+
+export interface Hit {
 	rule: Rule;
 	severity: Severity;
-	/** One sentence, shown verbatim in the report table. */
-	detail: string;
-	entryUpdatedAt: string;
+	params: HitParams;
 }
+
+/** Sort key: the lower, the more urgent. Stored so storage can order by it. */
+export const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
 export interface Thresholds {
 	/** Published entries untouched for longer than this are stale. */
@@ -52,6 +55,13 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 /**
+ * How long a passed schedule may wait before it counts as missed. EmDash
+ * publishes scheduled entries from its own cron run, which on most sites
+ * fires every few minutes, so an entry due a minute ago is not overdue yet.
+ */
+export const SCHEDULE_GRACE_MS = 60 * 60 * 1000;
+
+/**
  * Field names templates commonly render as the meta description when the
  * SEO panel is empty. The page then still has a description, so a missing
  * SEO description on such an entry is a low-priority finding.
@@ -65,35 +75,21 @@ function fallbackField(data: Record<string, unknown>): string | null {
 	return null;
 }
 
-export function evaluateEntry(
-	entry: PluginContentItem,
-	collection: string,
-	thresholds: Thresholds,
-	now: Date,
-): Finding[] {
-	const findings: Finding[] = [];
-	const base = {
-		collection,
-		entryId: entry.id,
-		slug: entry.slug,
-		locale: entry.locale ?? null,
-		entryUpdatedAt: entry.updatedAt,
-	};
-
+export function evaluateEntry(entry: PluginContentItem, thresholds: Thresholds, now: Date): Hit[] {
+	const hits: Hit[] = [];
 	const published = entry.status === "published";
 	const updatedAt = parseDate(entry.updatedAt);
 
-	// A schedule that came and went without publishing. Highest severity
-	// because someone expected this to be live — and it is a failure mode
-	// this stack actually produces: with autosave the publish button does
-	// not re-enable, so a scheduled draft can sit there indefinitely.
+	// A schedule that came and went. On an unpublished entry it was meant to
+	// publish it; on a published one, to publish its pending changes. Either
+	// way someone expected a change to be live, and with autosave the publish
+	// button does not re-enable, so a scheduled draft can sit there for good.
 	const scheduledAt = parseDate(entry.scheduledAt ?? null);
-	if (scheduledAt && !published && scheduledAt < now) {
-		findings.push({
-			...base,
+	if (scheduledAt && scheduledAt.getTime() < now.getTime() - SCHEDULE_GRACE_MS) {
+		hits.push({
 			rule: "overdue-schedule",
 			severity: "high",
-			detail: `Scheduled for ${scheduledAt.toISOString().slice(0, 10)} but still ${entry.status}.`,
+			params: { date: day(scheduledAt), kind: published ? "update" : "publish", status: entry.status },
 		});
 	}
 
@@ -104,48 +100,43 @@ export function evaluateEntry(
 		if (!description) {
 			if (thresholds.reportMissingDescriptions) {
 				const fallback = fallbackField(entry.data);
-				findings.push({
-					...base,
+				hits.push({
 					rule: "missing-description",
 					severity: fallback ? "low" : "medium",
-					detail: fallback
-						? `No SEO description; templates often show the "${fallback}" field instead.`
-						: "Published without an SEO description.",
+					params: fallback ? { field: fallback } : {},
 				});
 			}
 		} else if (
 			description.length < thresholds.descriptionMin ||
 			description.length > thresholds.descriptionMax
 		) {
-			findings.push({
-				...base,
+			hits.push({
 				rule: "description-length",
 				severity: "low",
-				detail: `SEO description is ${description.length} characters; aim for ${thresholds.descriptionMin}–${thresholds.descriptionMax}.`,
+				params: {
+					length: description.length,
+					min: thresholds.descriptionMin,
+					max: thresholds.descriptionMax,
+				},
 			});
 		}
 	}
 
 	if (updatedAt) {
 		if (published && updatedAt < subtractMonths(now, thresholds.staleMonths)) {
-			findings.push({
-				...base,
-				rule: "stale",
-				severity: "medium",
-				detail: `Not touched since ${updatedAt.toISOString().slice(0, 10)}.`,
-			});
+			hits.push({ rule: "stale", severity: "medium", params: { since: day(updatedAt) } });
 		}
 		if (entry.status === "draft" && updatedAt < subtractMonths(now, thresholds.draftMonths)) {
-			findings.push({
-				...base,
-				rule: "stale-draft",
-				severity: "low",
-				detail: `Draft untouched since ${updatedAt.toISOString().slice(0, 10)}.`,
-			});
+			hits.push({ rule: "stale-draft", severity: "low", params: { since: day(updatedAt) } });
 		}
 	}
 
-	return findings;
+	return hits;
+}
+
+/** The most urgent severity among `hits`, as a rank. */
+export function worstRank(hits: Hit[]): number {
+	return Math.min(...hits.map((hit) => RANK[hit.severity]));
 }
 
 /**
@@ -153,14 +144,14 @@ export function evaluateEntry(
  * 28 (or 29) February rather than rolling forward into March.
  */
 export function subtractMonths(from: Date, months: number): Date {
-	const day = from.getUTCDate();
+	const date = from.getUTCDate();
 	const shifted = new Date(from.getTime());
 	shifted.setUTCDate(1);
 	shifted.setUTCMonth(shifted.getUTCMonth() - months);
 	const lastDay = new Date(
 		Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0),
 	).getUTCDate();
-	shifted.setUTCDate(Math.min(day, lastDay));
+	shifted.setUTCDate(Math.min(date, lastDay));
 	return shifted;
 }
 
@@ -171,7 +162,6 @@ export function parseDate(value: string | null | undefined): Date | null {
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Stable storage id, so a re-run overwrites instead of duplicating. */
-export function findingId(collection: string, entryId: string, rule: Rule): string {
-	return `${collection}:${entryId}:${rule}`;
+function day(date: Date): string {
+	return date.toISOString().slice(0, 10);
 }

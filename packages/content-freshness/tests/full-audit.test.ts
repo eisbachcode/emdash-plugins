@@ -1,6 +1,8 @@
 import { createPluginRuntimeTestHost, type PluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { STATE_KEY, type State } from "../src/state.js";
+
 /**
  * One scheduled run audits one page of one collection. A nightly schedule
  * that ran one page per night would need a night per collection, so a run
@@ -39,6 +41,6 @@ describe("a scheduled audit", () => {
 		}
 
 		expect(runs).toBeLessThan(20);
-		expect(await host.inspect.kv.get("state:lastSweepFinishedAt")).not.toBeNull();
+		expect(await host.inspect.kv.get<State>(STATE_KEY)).toMatchObject({ sweep: null, lastFinishedAt: expect.any(String) });
 	});
 });

@@ -20,8 +20,7 @@ function entry(overrides: Partial<PluginContentItem> = {}): PluginContentItem {
 	} as PluginContentItem;
 }
 
-const rules = (item: PluginContentItem) =>
-	evaluateEntry(item, "posts", DEFAULT_THRESHOLDS, NOW).map((finding) => finding.rule);
+const rules = (item: PluginContentItem) => evaluateEntry(item, DEFAULT_THRESHOLDS, NOW).map((hit) => hit.rule);
 
 describe("evaluateEntry", () => {
 	it("finds nothing wrong with a fresh, described entry", () => {
@@ -41,24 +40,32 @@ describe("evaluateEntry", () => {
 	});
 
 	it("flags a schedule that passed without publishing, at high severity", () => {
-		const findings = evaluateEntry(
+		const hits = evaluateEntry(
 			entry({ status: "draft", scheduledAt: "2026-08-01T00:00:00.000Z" }),
-			"posts",
 			DEFAULT_THRESHOLDS,
 			NOW,
 		);
-		const overdue = findings.find((finding) => finding.rule === "overdue-schedule");
-		expect(overdue?.severity).toBe("high");
-		expect(overdue?.detail).toContain("2026-08-01");
+		const overdue = hits.find((hit) => hit.rule === "overdue-schedule");
+		expect(overdue).toMatchObject({ severity: "high", params: { date: "2026-08-01", kind: "publish" } });
 	});
 
-	it("ignores a schedule in the future, and one that already published", () => {
+	it("flags scheduled changes to a published entry that never went live", () => {
+		// EmDash keeps `scheduledAt` on a published entry for scheduled draft
+		// changes and clears it once they publish, so a past one was missed.
+		const [hit] = evaluateEntry(
+			entry({ status: "published", scheduledAt: "2026-08-01T00:00:00.000Z" }),
+			DEFAULT_THRESHOLDS,
+			NOW,
+		);
+		expect(hit).toMatchObject({ rule: "overdue-schedule", params: { kind: "update" } });
+	});
+
+	it("ignores a schedule in the future, and one the scheduler has not had time to run", () => {
 		expect(rules(entry({ status: "draft", scheduledAt: "2027-01-01T00:00:00.000Z" }))).not.toContain(
 			"overdue-schedule",
 		);
-		expect(rules(entry({ status: "published", scheduledAt: "2026-08-01T00:00:00.000Z" }))).not.toContain(
-			"overdue-schedule",
-		);
+		const minutesAgo = new Date(NOW.getTime() - 10 * 60 * 1000).toISOString();
+		expect(rules(entry({ status: "draft", scheduledAt: minutesAgo }))).not.toContain("overdue-schedule");
 	});
 
 	it("says nothing about SEO for a collection that has none", () => {
@@ -80,25 +87,28 @@ describe("evaluateEntry", () => {
 		it("drops to low priority and names the field templates tend to use", () => {
 			// Field names from a real site whose templates fall back to them.
 			for (const data of [{ excerpt: "96 Prozent …" }, { hero_subheadline: "IT-Beratung …" }]) {
-				const [finding] = evaluateEntry(entry({ seo: noSeo, data }), "posts", DEFAULT_THRESHOLDS, NOW);
-				expect(finding).toMatchObject({ rule: "missing-description", severity: "low" });
-				expect(finding?.detail).toContain(Object.keys(data)[0]!);
+				const [hit] = evaluateEntry(entry({ seo: noSeo, data }), DEFAULT_THRESHOLDS, NOW);
+				expect(hit).toMatchObject({
+					rule: "missing-description",
+					severity: "low",
+					params: { field: Object.keys(data)[0] },
+				});
 			}
 		});
 
 		it("stays a real finding when the fallback is empty or not a fallback at all", () => {
 			for (const data of [{ excerpt: "  " }, { hero_body: "Text" }, {}]) {
-				const [finding] = evaluateEntry(entry({ seo: noSeo, data }), "posts", DEFAULT_THRESHOLDS, NOW);
-				expect(finding?.severity).toBe("medium");
+				const [hit] = evaluateEntry(entry({ seo: noSeo, data }), DEFAULT_THRESHOLDS, NOW);
+				expect(hit?.severity).toBe("medium");
 			}
 		});
 
 		it("is not reported at all once the site switches the check off", () => {
 			const off = { ...DEFAULT_THRESHOLDS, reportMissingDescriptions: false };
-			expect(evaluateEntry(entry({ seo: noSeo }), "posts", off, NOW)).toEqual([]);
+			expect(evaluateEntry(entry({ seo: noSeo }), off, NOW)).toEqual([]);
 			// The length check is separate and still applies.
 			const short = { title: null, description: "too short", image: null, canonical: null, noIndex: false };
-			expect(evaluateEntry(entry({ seo: short }), "posts", off, NOW).map((f) => f.rule)).toEqual([
+			expect(evaluateEntry(entry({ seo: short }), off, NOW).map((hit) => hit.rule)).toEqual([
 				"description-length",
 			]);
 		});
