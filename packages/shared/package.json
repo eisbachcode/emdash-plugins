@@ -12,10 +12,10 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"peerDependencies": {
-		"emdash": ">=0.36.0 <1.0.0"
+		"emdash": ">=0.39.0 <1.0.0"
 	},
 	"devDependencies": {
-		"emdash": ">=0.36.0 <1.0.0",
+		"emdash": ">=0.39.0 <1.0.0",
 		"typescript": "^5.9.0",
 		"vitest": "^4.1.0"
 	}

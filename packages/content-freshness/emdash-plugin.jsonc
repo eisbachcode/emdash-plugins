@@ -1,0 +1,45 @@
+{
+	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+
+	"slug": "content-freshness",
+	"publisher": "did:plc:iucwrgdd464ddkranaa6ux3l",
+
+	"license": "MIT",
+	"author": { "name": "Eisbachcode", "url": "https://eisbachcode.de" },
+	"security": { "email": "daniel@eisbachcode.de" },
+	"repo": "https://github.com/eisbachcode/emdash-plugins",
+
+	// The only version check a user meets before installing. EmDash refuses
+	// an install whose host falls outside this range, so it carries a floor
+	// and deliberately no ceiling: EmDash ships a minor every 6-8 days, and
+	// a ceiling would block correct installs every week rather than catch a
+	// break. The manifest has no advisory "tested up to" field to express
+	// caution without blocking, so the tested range belongs in the README.
+	"release": {
+		"requires": { "env:emdash": ">=0.39.0" }
+	},
+	"description": "Audits your content for staleness: entries untouched for too long, missing or badly sized SEO descriptions, forgotten drafts, schedules that never fired, and collections without a URL pattern.",
+	"keywords": ["content", "audit", "seo", "maintenance", "editorial"],
+
+	// Trust contract: read content and the collection list, nothing else.
+	//
+	// No network at all — every rule is computed from fields the content
+	// and schema APIs already return. And no `content:write`: this plugin
+	// reports, it never edits an entry.
+	"capabilities": ["content:read", "schema:read"],
+	"allowedHosts": [],
+
+	"storage": {
+		// One row per (entry, rule). Re-running overwrites, so a fixed
+		// entry drops out of the report on the next sweep.
+		"findings": { "indexes": ["collection", "severity", "rule", "entryId"] },
+	},
+
+	"admin": {
+		"pages": [
+			{ "path": "/report", "label": "Content freshness", "icon": "clock" },
+			{ "path": "/settings", "label": "Freshness settings", "icon": "settings" },
+		],
+		"widgets": [{ "id": "summary", "title": "Needs attention", "size": "third" }],
+	},
+}
