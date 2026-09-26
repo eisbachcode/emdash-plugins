@@ -1,0 +1,54 @@
+{
+	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+
+	"slug": "content-link-check",
+	"publisher": "did:plc:iucwrgdd464ddkranaa6ux3l",
+
+	"license": "MIT",
+	"author": { "name": "Eisbachcode", "url": "https://eisbachcode.de" },
+	"security": { "email": "daniel@eisbachcode.de" },
+	"repo": "https://github.com/eisbachcode/emdash-plugins",
+
+	// The only version check a user meets before installing. EmDash refuses
+	// an install whose host falls outside this range, so it carries a floor
+	// and deliberately no ceiling: EmDash ships a minor every 6-8 days, and
+	// a ceiling would block correct installs every week rather than catch a
+	// break. The manifest has no advisory "tested up to" field to express
+	// caution without blocking, so the tested range belongs in the README.
+	"release": {
+		"requires": { "env:emdash": ">=0.39.0" }
+	},
+	"description": "Checks internal and outbound links in your content on a schedule and reports broken links, dead domains, and redirects in the admin.",
+	"keywords": ["links", "seo", "audit", "maintenance"],
+
+	// Trust contract.
+	//
+	// `network:request:unrestricted` is unavoidable here: the hosts this
+	// plugin contacts are whatever editors linked to, so there is no fixed
+	// allow-list that could be pinned at publish time. Same reasoning as
+	// upstream's own `webhook-notifier`. The plugin only ever issues HEAD
+	// and GET requests, never sends content, and reads no response body.
+	//
+	// `content:read` covers the sweep over entries, `schema:read` lists the
+	// collections to sweep. There is deliberately no `content:write` — this
+	// plugin reports, it never edits.
+	"capabilities": ["content:read", "schema:read", "network:request:unrestricted"],
+	"allowedHosts": [],
+
+	"storage": {
+		// One row per distinct link target: its last check, its verdict and
+		// the places that link to it. `finding` is the state of a reported
+		// target and null otherwise, so the report and the widget can query
+		// it. `checkedAt` finds the targets still due in a sweep, `seenAt`
+		// the ones nothing links to any more.
+		"checks": { "indexes": ["finding", "state", "checkedAt", "seenAt"] },
+	},
+
+	"admin": {
+		"pages": [
+			{ "path": "/report", "label": "Link report", "icon": "link" },
+			{ "path": "/settings", "label": "Link check settings", "icon": "settings" },
+		],
+		"widgets": [{ "id": "summary", "title": "Broken links", "size": "third" }],
+	},
+}
